@@ -1,7 +1,7 @@
-// E:\HealtRiskHub\app\features\admin\usersPage\component\UsersTable.tsx
+// app/features/admin/usersPage/component/UsersTable.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Eye, Pencil, Trash2, X } from "lucide-react";
 import { z } from "zod";
 import {
@@ -19,7 +19,13 @@ type AdminUser = {
   role?: string | null;
   position: string | null;
   province: string | null;
-  brith_date?: string | null; // ISO
+  brith_date?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  deletedAt?: string | null;
+
+  // เวลาที่ใช้งานเว็บรวม (วินาที) ต้องชื่อให้ตรงกับ backend
+  totalUsageSeconds?: number | null;
 };
 
 type EditForm = AdminEditUser;
@@ -34,28 +40,105 @@ type ProvinceItem = {
 type EditErrors = Partial<Record<keyof EditForm, string>>;
 type CreateErrors = Partial<Record<keyof CreateForm, string>>;
 
+/* ---------- helpers ---------- */
+
+function fmtDate(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDurationTH(sec?: number | null) {
+  if (!sec || sec <= 0) return "0 วินาที";
+
+  let remaining = sec;
+  const h = Math.floor(remaining / 3600);
+  remaining -= h * 3600;
+  const m = Math.floor(remaining / 60);
+  const s = remaining - m * 60;
+
+  const parts: string[] = [];
+  if (h) parts.push(`${h} ชม.`);
+  if (m) parts.push(`${m} นาที`);
+  if (s || parts.length === 0) parts.push(`${s} วินาที`);
+  return parts.join(" ");
+}
+
+/** เรียงผู้ใช้: ใหม่สุดบนสุด (ตาม createdAt desc, fallback id desc) */
+const sortUsers = (arr: AdminUser[]) =>
+  [...arr].sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : -Infinity;
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : -Infinity;
+    if (tb !== ta) return tb - ta;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
+
+/* badge บทบาท Member / Admin */
+function RoleBadge({ role }: { role?: string | null }) {
+  const isAdmin = role === "Admin";
+
+  const text = isAdmin ? "Admin" : "Member";
+
+  const className = isAdmin
+    ? "inline-flex items-center rounded-full bg-purple-50 px-3 py-1 text-xs font-medium text-purple-600"
+    : "inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600";
+
+  return <span className={className}>{text}</span>;
+}
+
+/* --- helper แบ่งจังหวัดตามภูมิภาค + label เส้นยาวให้เท่ากรุงเทพฯ --- */
+
+function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
+  return list.reduce<Record<string, ProvinceItem[]>>((acc, p) => {
+    const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(p);
+    return acc;
+  }, {});
+}
+
+const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
+const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
+const TARGET_LEN = [...BASE_LABEL].length;
+
+function makeRegionLabel(region: string): string {
+  const clean = region.trim();
+  const inner = ` ${clean} `;
+  const innerLen = [...inner].length;
+
+  const dashTotal = Math.max(4, TARGET_LEN - innerLen);
+  const left = Math.floor(dashTotal / 2);
+  const right = dashTotal - left;
+
+  return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
+}
+
+/* ---------- component ---------- */
+
 export default function UsersTable() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ----- view modal -----
   const [viewing, setViewing] = useState<AdminUser | null>(null);
 
-  // ----- edit modal -----
   const [editing, setEditing] = useState<EditForm | null>(null);
   const [editErrors, setEditErrors] = useState<EditErrors>({});
   const [saving, setSaving] = useState(false);
 
-  // ----- create modal -----
   const [creating, setCreating] = useState<CreateForm | null>(null);
   const [createErrors, setCreateErrors] = useState<CreateErrors>({});
   const [creatingBusy, setCreatingBusy] = useState(false);
 
-  // ----- provinces (เหมือน register) -----
-  const [provinces, setProvinces] = useState<string[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
   const [provErr, setProvErr] = useState<string | null>(null);
 
+  // pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | "all">(10);
+
+  // โหลดจังหวัด
   useEffect(() => {
     (async () => {
       try {
@@ -66,9 +149,7 @@ export default function UsersTable() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: ProvinceItem[] = await res.json();
-        const names = data.map((p) => p.ProvinceNameThai).filter(Boolean);
-        if (!names.length) throw new Error("empty province list");
-        setProvinces(names);
+        setProvinces(data);
       } catch (e) {
         console.error("โหลดจังหวัดล้มเหลว:", e);
         setProvErr("โหลดรายชื่อจังหวัดไม่สำเร็จ");
@@ -78,21 +159,30 @@ export default function UsersTable() {
     })();
   }, []);
 
-  const load = async () => {
+  // โหลด users (รวมเวลาใช้งานด้วย)
+  const loadUsers = async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/users", { cache: "no-store" });
       if (!res.ok) throw new Error("failed");
       const data: AdminUser[] = await res.json();
-      setUsers(data);
+      setUsers(sortUsers(data));
+    } catch (e) {
+      console.error("load users error:", e);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    void loadUsers();
   }, []);
+
+  // เปลี่ยนจำนวนคนต่อหน้า → กลับไปหน้า 1
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   const softDelete = async (id: number) => {
     if (!confirm("ยืนยันปิดการใช้งานผู้ใช้?")) return;
@@ -106,14 +196,6 @@ export default function UsersTable() {
     }
   };
 
-  // ---------- utils ----------
-  const fmtDate = (iso?: string | null) => {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-    return d.toISOString().slice(0, 10);
-  };
-
   const zodToErrors = <T extends Record<string, unknown>>(
     err: z.ZodError
   ): Partial<Record<keyof T, string>> => {
@@ -125,11 +207,11 @@ export default function UsersTable() {
     return out as Partial<Record<keyof T, string>>;
   };
 
-  // ---------- View ----------
+  /* ---------- View ---------- */
   const openView = (u: AdminUser) => setViewing(u);
   const closeView = () => setViewing(null);
 
-  // ---------- Edit ----------
+  /* ---------- Edit ---------- */
   const openEdit = (u: AdminUser) => {
     setEditing({
       id: u.id,
@@ -142,6 +224,9 @@ export default function UsersTable() {
       brith_date: fmtDate(u.brith_date),
     });
     setEditErrors({});
+
+    // ถ้าเปิด modal หน้าอื่นอยู่ให้ปิด
+    setViewing(null);
   };
   const closeEdit = () => {
     setEditing(null);
@@ -152,8 +237,7 @@ export default function UsersTable() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { id, value } = e.target;
-    setEditing((prev) => (prev ? { ...prev, [id]: value } as EditForm : prev));
-    // clear field error
+    setEditing((prev) => (prev ? ({ ...prev, [id]: value } as EditForm) : prev));
     const key = id as keyof EditErrors;
     setEditErrors((prev) => ({ ...prev, [key]: undefined }));
   };
@@ -193,9 +277,9 @@ export default function UsersTable() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err?.error || "บันทึกไม่สำเร็จ");
       }
-      const updated = await res.json();
+      const updated: AdminUser = await res.json();
       setUsers((prev) =>
-        prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u))
+        sortUsers(prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)))
       );
       closeEdit();
     } catch (e) {
@@ -205,7 +289,7 @@ export default function UsersTable() {
     }
   };
 
-  // ---------- Create ----------
+  /* ---------- Create ---------- */
   const openCreate = () =>
     setCreating({
       first_name: "",
@@ -228,7 +312,7 @@ export default function UsersTable() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { id, value } = e.target;
-    setCreating((prev) => (prev ? { ...prev, [id]: value } as CreateForm : prev));
+    setCreating((prev) => (prev ? ({ ...prev, [id]: value } as CreateForm) : prev));
     const key = id as keyof CreateErrors;
     setCreateErrors((prev) => ({ ...prev, [key]: undefined }));
   };
@@ -269,7 +353,7 @@ export default function UsersTable() {
         throw new Error(err?.error || "สร้างผู้ใช้ไม่สำเร็จ");
       }
       const created: AdminUser = await res.json();
-      setUsers((prev) => [{ ...created }, ...prev]);
+      setUsers((prev) => sortUsers([created, ...prev]));
       closeCreate();
     } catch (e) {
       alert((e as Error).message || "เกิดข้อผิดพลาด");
@@ -278,146 +362,233 @@ export default function UsersTable() {
     }
   };
 
-  // ---------- UI ----------
+  /* ---------- pagination logic ---------- */
+
+  const totalUsers = users.length;
+  const effectivePageSize = pageSize === "all" ? totalUsers || 1 : pageSize;
+
+  const totalPages = Math.max(1, Math.ceil(totalUsers / effectivePageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const startIndex =
+    pageSize === "all" ? 0 : (currentPage - 1) * effectivePageSize;
+
+  const pageUsers =
+    pageSize === "all"
+      ? users
+      : users.slice(startIndex, startIndex + effectivePageSize);
+
+  const provinceGroups = groupProvinces(provinces);
+
+  /* ---------- UI ---------- */
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">ผู้ใช้งาน</h2>
-        <button
-          className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 shadow-sm"
-          onClick={openCreate}
-        >
-          เพิ่มผู้ใช้
-        </button>
+
+        <div className="flex items-center gap-4">
+          {/* เลือกจำนวนคนต่อหน้า */}
+          <div className="hidden md:flex items-center gap-2 text-sm text-gray-600">
+            <span>แสดง</span>
+            <select
+              className="rounded-md border px-2 py-1 text-sm bg-white"
+              value={pageSize === "all" ? "all" : String(pageSize)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setPageSize(v === "all" ? "all" : Number(v));
+              }}
+            >
+              {[10, 15, 20, 25, 30, 40].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+              <option value="all">ทั้งหมด</option>
+            </select>
+            <span>คน / หน้า</span>
+          </div>
+
+          <button
+            className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+            onClick={loadUsers}
+          >
+            รีเฟรช
+          </button>
+          <button
+            className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 shadow-sm"
+            onClick={openCreate}
+          >
+            เพิ่มผู้ใช้
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <div>กำลังโหลด...</div>
-      ) : users.length === 0 ? (
-        <div className="text-gray-500">ยังไม่มีผู้ใช้งาน</div>
-      ) : (
-        <>
-          {/* header */}
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 text-sm text-gray-500 px-2">
-            <div>ชื่อ User</div>
-            <div>อีเมล</div>
-            <div className="text-right">เครื่องมือ</div>
+      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+        {loading ? (
+          <div className="px-6 py-10 text-center text-gray-500">
+            กำลังโหลด...
           </div>
+        ) : users.length === 0 ? (
+          <div className="px-6 py-10 text-center text-gray-500">
+            ยังไม่มีผู้ใช้งาน
+          </div>
+        ) : (
+          <>
+            {/* header row */}
+            <div className="bg-pink-50 px-6 py-3 text-sm font-medium text-gray-600 grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto]">
+              <div>ชื่อสมาชิก</div>
+              <div>อีเมล</div>
+              <div>บทบาท / ตำแหน่ง</div>
+              <div>เวลาที่ใช้งานเว็บรวม</div>
+              <div className="text-right">เครื่องมือ</div>
+            </div>
 
-          {/* rows */}
-          <div className="space-y-3">
-            {users.map((u) => (
-              <div
-                key={u.id}
-                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border px-4 py-3 bg-white hover:shadow-sm transition"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">
-                    {u.first_name} {u.last_name}
+            <div className="divide-y divide-gray-100">
+              {pageUsers.map((u) => (
+                <div
+                  key={u.id}
+                  className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto] items-center px-6 py-3 text-sm hover:bg-gray-50"
+                >
+                  {/* ชื่อ + ตำแหน่งย่อย */}
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">
+                      {u.first_name} {u.last_name}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {u.position ?? "-"}
+                      {u.province ? ` • ${u.province}` : ""}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500 truncate">
-                    {u.position ?? "-"} {u.province ? `• ${u.province}` : ""}
+
+                  {/* email */}
+                  <div className="min-w-0 truncate text-gray-800">
+                    {u.email}
+                  </div>
+
+                  {/* role + position badge */}
+                  <div className="flex items-center gap-2">
+                    <RoleBadge role={u.role} />
+                  </div>
+
+                  {/* total duration */}
+                  <div className="text-gray-700">
+                    {formatDurationTH(u.totalUsageSeconds ?? 0)}
+                  </div>
+
+                  {/* tools */}
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      className="p-2 hover:bg-gray-100 rounded-md"
+                      title="ดู"
+                      onClick={() => openView(u)}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="p-2 hover:bg-gray-100 rounded-md"
+                      title="แก้ไข"
+                      onClick={() => openEdit(u)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="p-2 hover:bg-gray-100 rounded-md"
+                      title="ลบ (soft)"
+                      onClick={() => softDelete(u.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                    </button>
                   </div>
                 </div>
+              ))}
+            </div>
 
-                <div className="min-w-0 truncate text-sm text-gray-800">
-                  {u.email}
-                </div>
-
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    className="p-2 hover:bg-gray-100 rounded-md"
-                    title="ดู"
-                    onClick={() => openView(u)}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-2 hover:bg-gray-100 rounded-md"
-                    title="แก้ไข"
-                    onClick={() => openEdit(u)}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-2 hover:bg-gray-100 rounded-md"
-                    title="ลบ (soft)"
-                    onClick={() => softDelete(u.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-red-600" />
-                  </button>
-                </div>
+            {/* footer pagination */}
+            <div className="flex flex-col gap-2 border-t px-6 py-3 text-sm text-gray-600 md:flex-row md:items-center md:justify-between">
+              <div>
+                รวม {totalUsers} คน • หน้า {currentPage} / {totalPages}
               </div>
-            ))}
-          </div>
-        </>
-      )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                >
+                  ก่อนหน้า
+                </button>
+                <button
+                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() =>
+                    setPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage >= totalPages}
+                >
+                  ถัดไป
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ---------- View Modal ---------- */}
       {viewing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-pink-600">รายละเอียดผู้ใช้</h3>
+              <h3 className="text-lg font-semibold">รายละเอียดผู้ใช้งาน</h3>
               <button
-                className="rounded-md p-2 hover:bg-gray-100"
-                onClick={() => setViewing(null)}
-                title="ปิด"
+                className="rounded-full p-1 hover:bg-gray-100"
+                onClick={closeView}
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="space-y-2 text-sm">
               <div>
-                <p className="text-gray-500">รหัสผู้ใช้</p>
-                <p className="font-medium">{viewing.id}</p>
-              </div>
-              <div>
-                <p className="text-gray-500">บทบาท</p>
-                <p className="font-medium">{viewing.role ?? "User"}</p>
+                <span className="font-medium">ชื่อ:</span>{" "}
+                {viewing.first_name} {viewing.last_name}
               </div>
               <div>
-                <p className="text-gray-500">ชื่อ</p>
-                <p className="font-medium">{viewing.first_name}</p>
+                <span className="font-medium">อีเมล:</span> {viewing.email}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">บทบาท:</span>
+                <RoleBadge role={viewing.role} />
               </div>
               <div>
-                <p className="text-gray-500">นามสกุล</p>
-                <p className="font-medium">{viewing.last_name}</p>
-              </div>
-              <div className="col-span-2">
-                <p className="text-gray-500">อีเมล</p>
-                <p className="font-medium break-all">{viewing.email}</p>
+                <span className="font-medium">ตำแหน่ง:</span>{" "}
+                {viewing.position ?? "-"}
               </div>
               <div>
-                <p className="text-gray-500">ตำแหน่ง</p>
-                <p className="font-medium">{viewing.position ?? "-"}</p>
+                <span className="font-medium">จังหวัด:</span>{" "}
+                {viewing.province ?? "-"}
               </div>
               <div>
-                <p className="text-gray-500">จังหวัด</p>
-                <p className="font-medium">{viewing.province ?? "-"}</p>
+                <span className="font-medium">วันเกิด:</span>{" "}
+                {fmtDate(viewing.brith_date)}
               </div>
-              <div className="col-span-2">
-                <p className="text-gray-500">วันเกิด</p>
-                <p className="font-medium">{fmtDate(viewing.brith_date)}</p>
+              <div>
+                <span className="font-medium">เวลาที่ใช้งานรวม:</span>{" "}
+                {formatDurationTH(viewing.totalUsageSeconds ?? 0)}
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-2">
               <button
-                onClick={() => {
-                  setViewing(null);
-                  openEdit(viewing);
-                }}
-                className="rounded-md border px-4 py-2 hover:bg-gray-50"
-              >
-                แก้ไข
-              </button>
-              <button
-                onClick={() => setViewing(null)}
-                className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600"
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+                onClick={closeView}
               >
                 ปิด
+              </button>
+              <button
+                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600"
+                onClick={() => openEdit(viewing)}
+              >
+                แก้ไข
               </button>
             </div>
           </div>
@@ -426,141 +597,163 @@ export default function UsersTable() {
 
       {/* ---------- Edit Modal ---------- */}
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-pink-600">แก้ไขโปรไฟล์ผู้ใช้</h3>
+              <h3 className="text-lg font-semibold">แก้ไขผู้ใช้งาน</h3>
               <button
-                className="rounded-md p-2 hover:bg-gray-100"
+                className="rounded-full p-1 hover:bg-gray-100"
                 onClick={closeEdit}
-                title="ปิด"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <label className="text-sm">
-                ชื่อ
-                <input
-                  id="first_name"
-                  value={editing.first_name}
-                  onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                />
-                {editErrors.first_name && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.first_name}</p>
-                )}
-              </label>
-              <label className="text-sm">
-                นามสกุล
-                <input
-                  id="last_name"
-                  value={editing.last_name}
-                  onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                />
-                {editErrors.last_name && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.last_name}</p>
-                )}
-              </label>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    ชื่อ
+                  </label>
+                  <input
+                    id="first_name"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={editing.first_name}
+                    onChange={onEditChange}
+                  />
+                  {editErrors.first_name && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {editErrors.first_name}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    นามสกุล
+                  </label>
+                  <input
+                    id="last_name"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={editing.last_name}
+                    onChange={onEditChange}
+                  />
+                  {editErrors.last_name && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {editErrors.last_name}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-              <label className="col-span-2 text-sm">
-                อีเมล
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  อีเมล
+                </label>
                 <input
                   id="email"
                   type="email"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
                   value={editing.email}
                   onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
                 />
                 {editErrors.email && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.email}</p>
+                  <p className="mt-1 text-xs text-red-500">
+                    {editErrors.email}
+                  </p>
                 )}
-              </label>
+              </div>
 
-              <label className="text-sm">
-                ตำแหน่ง
-                <input
-                  id="position"
-                  value={editing.position}
-                  onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                />
-                {editErrors.position && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.position}</p>
-                )}
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    บทบาท
+                  </label>
+                  <select
+                    id="role"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    value={editing.role}
+                    onChange={onEditChange}
+                  >
+                    <option value="User">Member</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    วันเกิด
+                  </label>
+                  <input
+                    id="brith_date"
+                    type="date"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={editing.brith_date || ""}
+                    onChange={onEditChange}
+                  />
+                </div>
+              </div>
 
-              {/* จังหวัด = select จากไฟล์ JSON */}
-              <label className="text-sm">
-                จังหวัด
-                <select
-                  id="province"
-                  value={editing.province}
-                  onChange={onEditChange}
-                  disabled={provLoading || !!provErr}
-                  className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
-                >
-                  <option value="">
-                    {provLoading ? "กำลังโหลดจังหวัด..." : provErr ?? "กรุณาเลือกจังหวัด"}
-                  </option>
-                  {!provLoading &&
-                    !provErr &&
-                    provinces.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                </select>
-                {editErrors.province && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.province}</p>
-                )}
-              </label>
-
-              <label className="text-sm">
-                วันเกิด
-                <input
-                  id="brith_date"
-                  type="date"
-                  value={editing.brith_date}
-                  onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                />
-                {editErrors.brith_date && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.brith_date}</p>
-                )}
-              </label>
-
-              <label className="text-sm">
-                บทบาท
-                <select
-                  id="role"
-                  value={editing.role}
-                  onChange={onEditChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                >
-                  <option value="User">User</option>
-                  <option value="Admin">Admin</option>
-                </select>
-                {editErrors.role && (
-                  <p className="mt-1 text-xs text-red-600">{editErrors.role}</p>
-                )}
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    ตำแหน่ง
+                  </label>
+                  <input
+                    id="position"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={editing.position}
+                    onChange={onEditChange}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    จังหวัด
+                  </label>
+                  <select
+                    id="province"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    value={editing.province}
+                    onChange={onEditChange}
+                  >
+                    <option value="">- เลือกจังหวัด -</option>
+                    {!provLoading &&
+                      !provErr &&
+                      Object.entries(provinceGroups)
+                        .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                        .map(([region, items]) => (
+                          <optgroup
+                            key={region}
+                            label={makeRegionLabel(region)}
+                          >
+                            {items.map((p) => (
+                              <option
+                                key={p.ProvinceNo}
+                                value={p.ProvinceNameThai}
+                              >
+                                {p.ProvinceNameThai}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                  </select>
+                  {provErr && (
+                    <p className="mt-1 text-xs text-red-500">{provErr}</p>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-2">
               <button
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
                 onClick={closeEdit}
-                className="rounded-md border px-4 py-2 hover:bg-gray-50"
                 disabled={saving}
               >
                 ยกเลิก
               </button>
               <button
+                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600 disabled:opacity-50"
                 onClick={saveEdit}
                 disabled={saving}
-                className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 disabled:opacity-60"
               >
                 {saving ? "กำลังบันทึก..." : "บันทึก"}
               </button>
@@ -571,179 +764,202 @@ export default function UsersTable() {
 
       {/* ---------- Create Modal ---------- */}
       {creating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-pink-600">เพิ่มผู้ใช้ใหม่</h3>
+              <h3 className="text-lg font-semibold">เพิ่มผู้ใช้ใหม่</h3>
               <button
-                className="rounded-md p-2 hover:bg-gray-100"
+                className="rounded-full p-1 hover:bg-gray-100"
                 onClick={closeCreate}
-                title="ปิด"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <label className="text-sm">
-                ชื่อ
-                <input
-                  id="first_name"
-                  value={creating.first_name}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
-                />
-                {createErrors.first_name && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.first_name}</p>
-                )}
-              </label>
-              <label className="text-sm">
-                นามสกุล
-                <input
-                  id="last_name"
-                  value={creating.last_name}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
-                />
-                {createErrors.last_name && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.last_name}</p>
-                )}
-              </label>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    ชื่อ
+                  </label>
+                  <input
+                    id="first_name"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.first_name}
+                    onChange={onCreateChange}
+                  />
+                  {createErrors.first_name && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {createErrors.first_name}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    นามสกุล
+                  </label>
+                  <input
+                    id="last_name"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.last_name}
+                    onChange={onCreateChange}
+                  />
+                  {createErrors.last_name && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {createErrors.last_name}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-              <label className="col-span-2 text-sm">
-                อีเมล
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  อีเมล
+                </label>
                 <input
                   id="email"
                   type="email"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
                   value={creating.email}
                   onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
                 />
                 {createErrors.email && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.email}</p>
-                )}
-              </label>
-
-              <label className="text-sm">
-                รหัสผ่าน
-                <input
-                  id="password"
-                  type="password"
-                  value={creating.password}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
-                />
-                {createErrors.password && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.password}</p>
-                )}
-              </label>
-
-              <label className="text-sm">
-                ยืนยันรหัสผ่าน
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  value={creating.confirmPassword}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
-                />
-                {createErrors.confirmPassword && (
-                  <p className="mt-1 text-xs text-red-600">
-                    {createErrors.confirmPassword}
+                  <p className="mt-1 text-xs text-red-500">
+                    {createErrors.email}
                   </p>
                 )}
-              </label>
+              </div>
 
-              <label className="text-sm">
-                ตำแหน่ง
-                <input
-                  id="position"
-                  value={creating.position}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                />
-                {createErrors.position && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.position}</p>
-                )}
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    รหัสผ่าน
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.password}
+                    onChange={onCreateChange}
+                  />
+                  {createErrors.password && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {createErrors.password}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    ยืนยันรหัสผ่าน
+                  </label>
+                  <input
+                    id="confirmPassword"
+                    type="password"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.confirmPassword}
+                    onChange={onCreateChange}
+                  />
+                  {createErrors.confirmPassword && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {createErrors.confirmPassword}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-              {/* จังหวัด = select จากไฟล์ JSON */}
-              <label className="text-sm">
-                จังหวัด
-                <select
-                  id="province"
-                  value={creating.province}
-                  onChange={onCreateChange}
-                  disabled={provLoading || !!provErr}
-                  className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
-                >
-                  <option value="">
-                    {provLoading ? "กำลังโหลดจังหวัด..." : provErr ?? "กรุณาเลือกจังหวัด"}
-                  </option>
-                  {!provLoading &&
-                    !provErr &&
-                    provinces.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                </select>
-                {createErrors.province && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.province}</p>
-                )}
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    บทบาท
+                  </label>
+                  <select
+                    id="role"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    value={creating.role}
+                    onChange={onCreateChange}
+                  >
+                    <option value="User">Member</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    วันเกิด
+                  </label>
+                  <input
+                    id="brith_date"
+                    type="date"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.brith_date || ""}
+                    onChange={onCreateChange}
+                  />
+                </div>
+              </div>
 
-              <label className="text-sm">
-                วันเกิด
-                <input
-                  id="brith_date"
-                  type="date"
-                  value={creating.brith_date}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                  required
-                />
-                {createErrors.brith_date && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.brith_date}</p>
-                )}
-              </label>
-
-              <label className="text-sm">
-                บทบาท
-                <select
-                  id="role"
-                  value={creating.role}
-                  onChange={onCreateChange}
-                  className="mt-1 w-full rounded-md border p-2"
-                >
-                  <option value="User">User</option>
-                  <option value="Admin">Admin</option>
-                </select>
-                {createErrors.role && (
-                  <p className="mt-1 text-xs text-red-600">{createErrors.role}</p>
-                )}
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    ตำแหน่ง
+                  </label>
+                  <input
+                    id="position"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={creating.position}
+                    onChange={onCreateChange}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    จังหวัด
+                  </label>
+                  <select
+                    id="province"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    value={creating.province}
+                    onChange={onCreateChange}
+                  >
+                    <option value="">- เลือกจังหวัด -</option>
+                    {!provLoading &&
+                      !provErr &&
+                      Object.entries(provinceGroups)
+                        .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                        .map(([region, items]) => (
+                          <optgroup
+                            key={region}
+                            label={makeRegionLabel(region)}
+                          >
+                            {items.map((p) => (
+                              <option
+                                key={p.ProvinceNo}
+                                value={p.ProvinceNameThai}
+                              >
+                                {p.ProvinceNameThai}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                  </select>
+                  {provErr && (
+                    <p className="mt-1 text-xs text-red-500">{provErr}</p>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-2">
               <button
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
                 onClick={closeCreate}
-                className="rounded-md border px-4 py-2 hover:bg-gray-50"
                 disabled={creatingBusy}
               >
                 ยกเลิก
               </button>
               <button
+                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600 disabled:opacity-50"
                 onClick={saveCreate}
                 disabled={creatingBusy}
-                className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 disabled:opacity-60"
               >
-                {creatingBusy ? "กำลังบันทึก..." : "บันทึก"}
+                {creatingBusy ? "กำลังบันทึก..." : "สร้างผู้ใช้"}
               </button>
             </div>
           </div>

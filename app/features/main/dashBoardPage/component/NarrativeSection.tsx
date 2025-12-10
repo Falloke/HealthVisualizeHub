@@ -2,27 +2,26 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { composeAINarrativePayload } from "../composePayload.client";
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { Card, CardHeader, CardTitle, CardContent } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
-// import { Textarea } from "@/app/components/ui/textarea"; // ถ้าจะเปิดช่องโน้ตค่อยเอาออกจากคอมเมนต์
-
-import { useSession } from "next-auth/react";
 
 export default function NarrativeSection() {
-  const { data: session, status } = useSession();
+  const router = useRouter();
+  const { status } = useSession();
   const isAuthed = status === "authenticated";
 
-  // ⛔️ ยังไม่ล็อกอิน/ยังโหลดสถานะ: ไม่แสดงอะไรเลย
-  if (!isAuthed) return null;
-
-  const [extraNotes, setExtraNotes] = useState("");
+  const [extraNotes] = useState(""); // ถ้าอยากเปิดช่องโน้ตค่อยนำมาใช้
   const [loading, setLoading] = useState(false);
   const [article, setArticle] = useState("");
+  const [showLockModal, setShowLockModal] = useState(false);
+
   const { province, start_date, end_date } = useDashboardStore();
 
-  async function handleGenerate() {
+  async function handleGenerateAuthed() {
     try {
       setLoading(true);
       setArticle("");
@@ -43,6 +42,14 @@ export default function NarrativeSection() {
     }
   }
 
+  function handleGenerate() {
+    if (!isAuthed) {
+      setShowLockModal(true);
+      return;
+    }
+    void handleGenerateAuthed();
+  }
+
   function downloadTxt() {
     const blob = new Blob([article], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -54,36 +61,76 @@ export default function NarrativeSection() {
   }
 
   return (
-    <Card className="mt-6">
-      <CardHeader>
-        <CardTitle>AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* เปิดใช้งานเมื่ออยากให้กรอกโน้ตเพิ่ม
-        <div className="text-sm text-muted-foreground">
-          เพิ่มข้อความ/มาตรการเฉพาะพื้นที่เพื่อให้ AI นำไปผสมกับตัวเลขจากกราฟ
-        </div>
-        <Textarea
-          placeholder="เช่น เน้นล้างมือ สวมหน้ากากในพื้นที่ปิด ฉีดวัคซีนกลุ่มเสี่ยง..."
-          value={extraNotes}
-          onChange={(e) => setExtraNotes(e.target.value)}
-        /> */}
-
-        <div className="flex gap-2">
-          <Button onClick={handleGenerate} disabled={loading}>
-            {loading ? "กำลังสร้างบทความ…" : "Generate Narrative"}
-          </Button>
-          <Button variant="secondary" onClick={downloadTxt} disabled={!article}>
-            ดาวน์โหลด .txt
-          </Button>
-        </div>
-
-        {article && (
-          <div className="mt-4 whitespace-pre-wrap rounded-lg bg-muted p-4 leading-7">
-            {article}
+    <>
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Button onClick={handleGenerate} disabled={loading}>
+              {loading ? "กำลังสร้างบทความ…" : "Generate Narrative"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={downloadTxt}
+              disabled={!article}
+              title={!article ? "สร้างบทความก่อนจึงจะดาวน์โหลดได้" : ""}
+            >
+              ดาวน์โหลด .txt
+            </Button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          {article && (
+            <div className="mt-4 whitespace-pre-wrap rounded-lg bg-muted p-4 leading-7">
+              {article}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Popup แบบไม่พึ่งไลบรารี เพิ่มเติม */}
+      {showLockModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          aria-modal="true"
+          role="dialog"
+        >
+          {/* ฉากหลัง */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowLockModal(false)}
+          />
+
+          {/* กล่องโหมดัล */}
+          <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-3 text-lg font-semibold text-gray-900">
+              ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
+            </div>
+            <div className="mb-5 text-sm text-gray-600">
+              ฟีเจอร์สร้างคำบรรยายอัตโนมัติ (AI Narrative) ใช้ได้เฉพาะสมาชิกเท่านั้น
+              โปรดเข้าสู่ระบบหรือสมัครสมาชิกก่อน
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setShowLockModal(false)}
+                className="border"
+              >
+                ปิด
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => router.push("/register")}
+              >
+                Register
+              </Button>
+              <Button onClick={() => router.push("/login")}>Login</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

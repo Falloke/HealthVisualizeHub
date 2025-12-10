@@ -1,3 +1,4 @@
+// E:\HealtRiskHub\app\(main)\home\page.tsx
 "use client";
 
 import HomePage from "@/app/features/main/homePage/Index";
@@ -11,7 +12,7 @@ export default function HomePageRender() {
 
   const measure = useMemo(
     () => () => {
-      // วัดความสูงจริงจาก #app-navbar และ #app-footer (ที่แก้ไปแล้ว)
+      // วัดความสูงจริงจาก #app-navbar และ #app-footer
       const nav = document.getElementById("app-navbar");
       const footer = document.getElementById("app-footer");
       const top = Math.ceil(nav?.getBoundingClientRect().height ?? 64);
@@ -22,11 +23,7 @@ export default function HomePageRender() {
   );
 
   useEffect(() => {
-    // ล็อกสกรอลล์ของ body เฉพาะหน้านี้
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    // วัดครั้งแรก + เมื่อรีไซส์/เปลี่ยน layout
+    // ไม่ล็อกสกรอลล์ body แล้ว
     measure();
     const roNavbar = new ResizeObserver(measure);
     const roFooter = new ResizeObserver(measure);
@@ -38,7 +35,6 @@ export default function HomePageRender() {
     window.addEventListener("orientationchange", measure);
 
     return () => {
-      document.body.style.overflow = prevOverflow;
       roNavbar.disconnect();
       roFooter.disconnect();
       window.removeEventListener("resize", measure);
@@ -47,18 +43,18 @@ export default function HomePageRender() {
   }, [measure]);
 
   return (
-    // กรอบหลัก fixed กำหนด top/bottom จากค่าที่วัดได้จริง
+    // กรอบหลักยัง fixed เพื่อกันซ้อน navbar/footer แต่ให้สกรอลล์ได้ใน main
     <div
-      className="fixed z-0 flex w-full items-stretch overflow-hidden"
+      className="fixed z-0 flex w-full items-stretch"
       style={{ top: insets.top, bottom: insets.bottom, left: 0, right: 0 }}
     >
-      {/* Sidebar กว้างคงที่ สูงเต็มกรอบ */}
-      <aside className="h-full w-[300px] shrink-0">
+      {/* Sidebar สูงเต็มกรอบ */}
+      <aside className="h-full w-[280px] md:w-[300px] shrink-0">
         <HomeSidebar />
       </aside>
 
-      {/* เนื้อหา สูงเต็ม ใช้สกรอลล์ภายใน HomePage เอง */}
-      <main className="h-full min-w-0 flex-1 overflow-hidden px-5 py-4">
+      {/* อนุญาตเลื่อนภายในพื้นที่คอนเทนต์ */}
+      <main className="h-full min-w-0 flex-1 overflow-auto px-5 py-4">
         <HomePage />
       </main>
     </div>

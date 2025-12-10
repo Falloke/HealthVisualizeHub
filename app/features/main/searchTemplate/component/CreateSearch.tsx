@@ -1,4 +1,4 @@
-// E:\HealtRiskHub\app\features\main\searchTemplate\component\CreateSearch.tsx
+// app/features/main/searchTemplate/component/CreateSearch.tsx
 "use client";
 
 import { HexColorPicker } from "react-colorful";
@@ -28,9 +28,9 @@ type ProvinceItem = {
 };
 
 type Disease = {
-  code: string;       // D01
-  name_th: string;    // ไข้หวัดใหญ่
-  name_en: string;    // Influenza
+  code: string; // D01
+  name_th: string; // ไข้หวัดใหญ่
+  name_en: string; // Influenza
 };
 
 // สีอัตโนมัติของโรค (อิงชื่อภาษาไทยที่ฐานข้อมูลมี)
@@ -40,11 +40,38 @@ const DISEASE_COLOR: Record<string, string> = {
   "โรคฝีดาษลิง": "#8B5CF6",
 };
 
+// ---------- helper แบ่งจังหวัดตามภูมิภาค + label เส้นยาว ----------
+function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
+  return list.reduce<Record<string, ProvinceItem[]>>((acc, p) => {
+    const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(p);
+    return acc;
+  }, {});
+}
+
+const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
+const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
+const TARGET_LEN = [...BASE_LABEL].length;
+
+function makeRegionLabel(region: string): string {
+  const clean = region.trim();
+  const inner = ` ${clean} `;
+  const innerLen = [...inner].length;
+
+  const dashTotal = Math.max(4, TARGET_LEN - innerLen);
+  const left = Math.floor(dashTotal / 2);
+  const right = dashTotal - left;
+
+  return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
+}
+// -------------------------------------------------------------
+
 const SearchCreate = () => {
   const router = useRouter();
 
   // ---------- Provinces from JSON ----------
-  const [provinces, setProvinces] = useState<string[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
   const [provErr, setProvErr] = useState<string | null>(null);
 
@@ -53,12 +80,13 @@ const SearchCreate = () => {
       try {
         setProvLoading(true);
         setProvErr(null);
-        const res = await fetch("/data/Thailand-ProvinceName.json", { cache: "force-cache" });
+        const res = await fetch("/data/Thailand-ProvinceName.json", {
+          cache: "force-cache",
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: ProvinceItem[] = await res.json();
-        const names = data.map((p) => p.ProvinceNameThai).filter(Boolean);
-        if (!names.length) throw new Error("empty province list");
-        setProvinces(names);
+        if (!data.length) throw new Error("empty province list");
+        setProvinces(data);
       } catch (e) {
         console.error("โหลดจังหวัดล้มเหลว:", e);
         setProvErr("โหลดรายชื่อจังหวัดไม่สำเร็จ");
@@ -74,6 +102,19 @@ const SearchCreate = () => {
   const [dzLoading, setDzLoading] = useState(true);
   const [dzErr, setDzErr] = useState<string | null>(null);
 
+  const [formData, setFormData] = useState({
+    searchName: "",
+    province: "", // optional
+    startDate: "",
+    endDate: "",
+    disease: "", // เก็บเป็น "ชื่อไทย"
+    diseaseOther: "",
+    diseaseProvince: "", // optional
+    color: "#E89623",
+  });
+  const [errors, setErrors] = useState<Errors>({});
+  const [submitting, setSubmitting] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -82,11 +123,9 @@ const SearchCreate = () => {
         const res = await fetch("/api/diseases", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = (await res.json()) as { diseases: Disease[] } | Disease[];
-        // รองรับทั้งรูป `{ diseases: [...] }` และ `[...]`
         const rows = Array.isArray(json) ? json : json?.diseases || [];
         setDiseases(rows);
 
-        // ตั้งค่า default ถ้ายังไม่มี (เลือกตัวแรก ถ้ามี D01 ก็จะเป็น D01)
         if (rows.length > 0) {
           const first = rows.find((d) => d.code === "D01") ?? rows[0];
           setFormData((p) => ({
@@ -105,20 +144,6 @@ const SearchCreate = () => {
   }, []);
   // ---------------------------------------
 
-  const [formData, setFormData] = useState({
-    searchName: "",
-    province: "", // optional
-    startDate: "",
-    endDate: "",
-    // จะถูกเซ็ตหลังโหลดรายการโรค
-    disease: "", // เก็บเป็น "ชื่อไทย" เพื่อให้ schema เดิมผ่าน
-    diseaseOther: "",
-    diseaseProvince: "", // optional
-    color: "#E89623",
-  });
-  const [errors, setErrors] = useState<Errors>({});
-  const [submitting, setSubmitting] = useState(false);
-
   const isOtherDisease = formData.disease === "อื่น ๆ";
 
   const handleChange = (
@@ -127,12 +152,12 @@ const SearchCreate = () => {
     const { id, value } = e.target;
 
     if (id === "disease") {
-      const newDiseaseNameTh = value; // เก็บ "ชื่อไทย"
+      const newDiseaseNameTh = value;
       if (newDiseaseNameTh === "อื่น ๆ") {
         setFormData((prev) => ({
           ...prev,
           disease: newDiseaseNameTh,
-          color: "#E89623", // ค่าตั้งต้นสำหรับเลือกสีเอง
+          color: "#E89623",
           diseaseOther: "",
         }));
       } else {
@@ -163,7 +188,11 @@ const SearchCreate = () => {
 
   const validate = (): boolean => {
     setErrors({});
-    const schema = makeSearchCreateSchema(provinces);
+    // ส่งเฉพาะชื่อจังหวัดเข้า schema
+    const provinceNames = provinces
+      .map((p) => p.ProvinceNameThai)
+      .filter(Boolean);
+    const schema = makeSearchCreateSchema(provinceNames);
     const parsed = schema.safeParse(formData);
     if (!parsed.success) {
       setErrors(zodToErrors(parsed.error));
@@ -187,9 +216,9 @@ const SearchCreate = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           searchName: formData.searchName.trim(),
-          disease: diseaseName, // ยังส่งเป็นชื่อไทย เพื่อให้ backend/schema เดิมรับได้
-          province: formData.province.trim(), // optional
-          diseaseProvince: formData.diseaseProvince.trim(), // optional
+          disease: diseaseName,
+          province: formData.province.trim(),
+          diseaseProvince: formData.diseaseProvince.trim(),
           startDate: formData.startDate,
           endDate: formData.endDate,
           color: formData.color,
@@ -201,8 +230,15 @@ const SearchCreate = () => {
         throw new Error(err?.error || "บันทึกไม่สำเร็จ");
       }
 
-      const data = await res.json(); // { id, ... }
-      router.push(`/search?id=${data.id}`);
+      const q = new URLSearchParams({
+        province: formData.province.trim(),
+        start_date: formData.startDate || "",
+        end_date: formData.endDate || "",
+        disease: diseaseName,
+        color: formData.color || "",
+      }).toString();
+
+      router.push(`/dashBoard?${q}`);
     } catch (err) {
       console.error(err);
       alert("บันทึกไม่สำเร็จ");
@@ -210,6 +246,8 @@ const SearchCreate = () => {
       setSubmitting(false);
     }
   };
+
+  const provinceGroups = groupProvinces(provinces);
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-white px-4 py-12">
@@ -253,15 +291,23 @@ const SearchCreate = () => {
               className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
             >
               <option value="">
-                {provLoading ? "กำลังโหลดจังหวัด..." : provErr ?? "กรุณาเลือกจังหวัด"}
+                {provLoading
+                  ? "กำลังโหลดจังหวัด..."
+                  : provErr ?? "กรุณาเลือกจังหวัด"}
               </option>
               {!provLoading &&
                 !provErr &&
-                provinces.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
+                Object.entries(provinceGroups)
+                  .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                  .map(([region, items]) => (
+                    <optgroup key={region} label={makeRegionLabel(region)}>
+                      {items.map((p) => (
+                        <option key={p.ProvinceNo} value={p.ProvinceNameThai}>
+                          {p.ProvinceNameThai}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
             </select>
             {errors.province && (
               <p className="mt-1 text-xs text-red-600">{errors.province}</p>
@@ -284,7 +330,9 @@ const SearchCreate = () => {
                   }`}
                 />
                 {errors.startDate && (
-                  <p className="mt-1 text-xs text-red-600">{errors.startDate}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.startDate}
+                  </p>
                 )}
               </label>
 
@@ -301,7 +349,9 @@ const SearchCreate = () => {
                   min={formData.startDate || undefined}
                 />
                 {errors.endDate && (
-                  <p className="mt-1 text-xs text-red-600">{errors.endDate}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.endDate}
+                  </p>
                 )}
               </label>
             </div>
@@ -336,7 +386,6 @@ const SearchCreate = () => {
               {!dzLoading &&
                 !dzErr &&
                 diseases.map((d) => (
-                  // value เก็บ "ชื่อไทย" เพื่อให้ schema เดิมทำงานได้
                   <option key={d.code} value={d.name_th}>
                     {`${d.code} — ${d.name_th} (${d.name_en})`}
                   </option>
@@ -364,14 +413,16 @@ const SearchCreate = () => {
                 }`}
               />
               {errors.diseaseOther && (
-                <p className="mt-1 text-xs text-red-600">{errors.diseaseOther}</p>
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.diseaseOther}
+                </p>
               )}
             </label>
           )}
 
           {/* จังหวัดของโรค (optional) */}
           <label className="text-sm font-medium text-gray-700">
-            จังหวัดที่ต้องการเปลี่ยบเที่ยบเลือกจังหวัดของโรค
+            จังหวัดที่ต้องการเปรียบเทียบเลือกจังหวัดของโรค
             <select
               id="diseaseProvince"
               value={formData.diseaseProvince}
@@ -380,18 +431,28 @@ const SearchCreate = () => {
               className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
             >
               <option value="">
-                {provLoading ? "กำลังโหลดจังหวัด..." : provErr ?? "กรุณาเลือกจังหวัด"}
+                {provLoading
+                  ? "กำลังโหลดจังหวัด..."
+                  : provErr ?? "กรุณาเลือกจังหวัด"}
               </option>
               {!provLoading &&
                 !provErr &&
-                provinces.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
+                Object.entries(provinceGroups)
+                  .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                  .map(([region, items]) => (
+                    <optgroup key={region} label={makeRegionLabel(region)}>
+                      {items.map((p) => (
+                        <option key={p.ProvinceNo} value={p.ProvinceNameThai}>
+                          {p.ProvinceNameThai}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
             </select>
             {errors.diseaseProvince && (
-              <p className="mt-1 text-xs text-red-600">{errors.diseaseProvince}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {errors.diseaseProvince}
+              </p>
             )}
           </label>
 

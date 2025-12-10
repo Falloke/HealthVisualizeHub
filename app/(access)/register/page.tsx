@@ -18,11 +18,41 @@ type ProvinceItem = {
   Region_VaccineRollout_MOPH?: string | null;
 };
 
+// ---------- helper แบ่งจังหวัดเป็นภูมิภาค + label เส้นยาว ----------
+
+function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
+  return list.reduce<Record<string, ProvinceItem[]>>((acc, p) => {
+    const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(p);
+    return acc;
+  }, {});
+}
+
+// ใช้ความยาวเส้นอ้างอิงจาก "กรุงเทพมหานครและปริมณฑล"
+const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
+const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
+const TARGET_LEN = [...BASE_LABEL].length;
+
+function makeRegionLabel(region: string): string {
+  const clean = region.trim();
+  const inner = ` ${clean} `;
+  const innerLen = [...inner].length;
+
+  const dashTotal = Math.max(4, TARGET_LEN - innerLen);
+  const left = Math.floor(dashTotal / 2);
+  const right = dashTotal - left;
+
+  return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
+}
+
+// ----------------------------------------------------------
+
 export default function RegisterPage() {
   const router = useRouter();
 
   // ---------- โหลดรายชื่อจังหวัดจากไฟล์ใน public ----------
-  const [provinces, setProvinces] = useState<string[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
   const [provErr, setProvErr] = useState<string | null>(null);
 
@@ -31,12 +61,13 @@ export default function RegisterPage() {
       try {
         setProvLoading(true);
         setProvErr(null);
-        const res = await fetch("/data/Thailand-ProvinceName.json", { cache: "force-cache" });
+        const res = await fetch("/data/Thailand-ProvinceName.json", {
+          cache: "force-cache",
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: ProvinceItem[] = await res.json();
-        const names = data.map(p => p.ProvinceNameThai).filter(Boolean);
-        if (names.length === 0) throw new Error("empty list");
-        setProvinces(names);
+        if (!data.length) throw new Error("empty list");
+        setProvinces(data);
       } catch (e) {
         console.error(e);
         setProvErr("โหลดรายชื่อจังหวัดไม่สำเร็จ");
@@ -106,6 +137,8 @@ export default function RegisterPage() {
     }
   };
 
+  const provinceGroups = groupProvinces(provinces);
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
       <div className="flex w-full max-w-6xl overflow-hidden rounded-xl bg-white">
@@ -114,7 +147,9 @@ export default function RegisterPage() {
         </div>
 
         <div className="w-1/2 p-10">
-          <h2 className="mb-8 text-center text-3xl font-bold text-pink-600">สมัครสมาชิก</h2>
+          <h2 className="mb-8 text-center text-3xl font-bold text-pink-600">
+            สมัครสมาชิก
+          </h2>
 
           <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>
             {/* ชื่อ + นามสกุล */}
@@ -136,22 +171,41 @@ export default function RegisterPage() {
 
               {/* จังหวัด + วันเกิด (อยู่แถวเดียวกัน) */}
               <div>
-                <label className="text-sm font-medium text-gray-700">จังหวัด*</label>
+                <label className="text-sm font-medium text-gray-700">
+                  จังหวัด*
+                </label>
                 <select
                   className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
                   disabled={provLoading || !!provErr}
                   {...register("province")}
                 >
                   <option value="">
-                    {provLoading ? "กำลังโหลดจังหวัด..." : provErr ?? "กรุณาเลือกจังหวัด"}
+                    {provLoading
+                      ? "กำลังโหลดจังหวัด..."
+                      : provErr ?? "กรุณาเลือกจังหวัด"}
                   </option>
-                  {!provLoading && !provErr &&
-                    provinces.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+
+                  {!provLoading &&
+                    !provErr &&
+                    Object.entries(provinceGroups)
+                      .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                      .map(([region, items]) => (
+                        <optgroup key={region} label={makeRegionLabel(region)}>
+                          {items.map((p) => (
+                            <option
+                              key={p.ProvinceNo}
+                              value={p.ProvinceNameThai}
+                            >
+                              {p.ProvinceNameThai}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                 </select>
                 {errors.province && (
-                  <p className="mt-1 text-xs text-red-500">{errors.province.message}</p>
+                  <p className="mt-1 text-xs text-red-500">
+                    {errors.province.message}
+                  </p>
                 )}
               </div>
 
@@ -225,12 +279,30 @@ export default function RegisterPage() {
         {pendingData && (
           <div className="rounded-lg border p-4 text-sm">
             <div className="grid grid-cols-2 gap-3">
-              <p><span className="font-medium">ชื่อ:</span> {pendingData.firstName}</p>
-              <p><span className="font-medium">นามสกุล:</span> {pendingData.lastName}</p>
-              <p><span className="font-medium">จังหวัด:</span> {watchedProvince || pendingData.province}</p>
-              <p><span className="font-medium">วันเกิด:</span> {watchedDob || pendingData.dob}</p>
-              <p className="col-span-2"><span className="font-medium">ตำแหน่ง:</span> {pendingData.position}</p>
-              <p className="col-span-2"><span className="font-medium">อีเมล:</span> {pendingData.email}</p>
+              <p>
+                <span className="font-medium">ชื่อ:</span>{" "}
+                {pendingData.firstName}
+              </p>
+              <p>
+                <span className="font-medium">นามสกุล:</span>{" "}
+                {pendingData.lastName}
+              </p>
+              <p>
+                <span className="font-medium">จังหวัด:</span>{" "}
+                {watchedProvince || pendingData.province}
+              </p>
+              <p>
+                <span className="font-medium">วันเกิด:</span>{" "}
+                {watchedDob || pendingData.dob}
+              </p>
+              <p className="col-span-2">
+                <span className="font-medium">ตำแหน่ง:</span>{" "}
+                {pendingData.position}
+              </p>
+              <p className="col-span-2">
+                <span className="font-medium">อีเมล:</span>{" "}
+                {pendingData.email}
+              </p>
             </div>
           </div>
         )}

@@ -27,8 +27,13 @@ const createSchema = z
     startDate: z.preprocess(emptyToUndef, dateStr.optional()),
     endDate: z.preprocess(emptyToUndef, dateStr.optional()),
 
-    color: z
-      .preprocess(emptyToUndef, z.string().regex(/^#[0-9a-fA-F]{6}$/, "สีต้องเป็น #RRGGBB").optional()),
+    color: z.preprocess(
+      emptyToUndef,
+      z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "สีต้องเป็น #RRGGBB")
+        .optional()
+    ),
   })
   .refine(
     (v) => {
@@ -42,19 +47,28 @@ const createSchema = z
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
+
+    // ไม่ล็อกอิน → ให้ 401 เพื่อให้ Sidebar ซ่อน block “ค้นหาที่บันทึกไว้”
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const userIdNum = Number(session.user.id);
     if (!userIdNum) {
-      return NextResponse.json({ error: "Invalid session userId" }, { status: 400 });
+      // user.id เป็นรูปแบบอื่น (เช่น uuid) → ถือว่าไม่มี saved search
+      console.warn(
+        "[saved-searches] invalid session userId:",
+        session.user.id
+      );
+      return NextResponse.json([], {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     const { searchParams } = new URL(req.url);
     const idParam = searchParams.get("id");
 
-    // ดึงรายการเดียว
+    // ---------- ดึงรายการเดียว ----------
     if (idParam) {
       let idBig: bigint;
       try {
@@ -66,7 +80,10 @@ export async function GET(req: NextRequest) {
       const row = await prisma.savedSearch.findFirst({
         where: { id: idBig, userId: userIdNum },
       });
-      if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+      if (!row) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
 
       return NextResponse.json(
         {
@@ -75,7 +92,9 @@ export async function GET(req: NextRequest) {
           diseaseName: row.diseaseName ?? "",
           province: row.province ?? "",
           provinceAlt: row.provinceAlt ?? "",
-          startDate: row.startDate ? row.startDate.toISOString().slice(0, 10) : "",
+          startDate: row.startDate
+            ? row.startDate.toISOString().slice(0, 10)
+            : "",
           endDate: row.endDate ? row.endDate.toISOString().slice(0, 10) : "",
           color: row.color ?? "",
           createdAt: row.createdAt.toISOString(),
@@ -84,7 +103,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ดึงทั้งหมดของผู้ใช้
+    // ---------- ดึงทั้งหมดของผู้ใช้ ----------
     const rows = await prisma.savedSearch.findMany({
       where: { userId: userIdNum },
       orderBy: { createdAt: "desc" },
@@ -103,10 +122,16 @@ export async function GET(req: NextRequest) {
       createdAt: r.createdAt.toISOString(),
     }));
 
-    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(data, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (err) {
     console.error("GET /api/saved-searches error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    // ❗ แทนที่จะส่ง 500 (แล้ว Sidebar ขึ้นกล่องแดง) ส่ง [] กลับไปเลย
+    return NextResponse.json([], {
+      headers: { "Cache-Control": "no-store" },
+      status: 200,
+    });
   }
 }
 
@@ -120,7 +145,10 @@ export async function POST(req: NextRequest) {
 
     const userIdNum = Number(session.user.id);
     if (!userIdNum) {
-      return NextResponse.json({ error: "Invalid session userId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid session userId" },
+        { status: 400 }
+      );
     }
 
     const json = await req.json();
@@ -143,8 +171,12 @@ export async function POST(req: NextRequest) {
       {
         id: Number(created.id),
         searchName: created.searchName,
-        startDate: created.startDate?.toISOString().slice(0, 10) ?? "",
-        endDate: created.endDate?.toISOString().slice(0, 10) ?? "",
+        startDate:
+          created.startDate?.toISOString().slice(0, 10) ??
+          body.startDate ??
+          "",
+        endDate:
+          created.endDate?.toISOString().slice(0, 10) ?? body.endDate ?? "",
       },
       { status: 201 }
     );
@@ -157,7 +189,10 @@ export async function POST(req: NextRequest) {
       );
     }
     console.error("POST /api/saved-searches error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -171,11 +206,19 @@ export async function DELETE(req: NextRequest) {
 
     const userIdNum = Number(session.user.id);
     if (!userIdNum) {
-      return NextResponse.json({ error: "Invalid session userId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid session userId" },
+        { status: 400 }
+      );
     }
 
     const idStr = req.nextUrl.searchParams.get("id");
-    if (!idStr) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    if (!idStr) {
+      return NextResponse.json(
+        { error: "Missing id" },
+        { status: 400 }
+      );
+    }
 
     let idBig: bigint;
     try {
@@ -194,6 +237,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("DELETE /api/saved-searches error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

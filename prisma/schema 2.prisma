@@ -26,6 +26,8 @@ model User {
 
   // ⬇️ เปลี่ยนจาก saved_searches saved_searches[] เป็น:
   savedSearches SavedSearch[] // ชื่อฟิลด์จะเป็น camelCase ก็ได้
+
+  userSessions  UserSession[]
 }
 
 model Session {
@@ -229,4 +231,23 @@ model SavedSearch {
   @@index([searchName], map: "idx_saved_searches_search_name")
   @@index([userId, createdAt(sort: Desc)], map: "idx_saved_searches_user_created")
   @@map("saved_searches") // ← ชื่อตารางจริงใน DB
+}
+
+model UserSession {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  startedAt      DateTime  @default(now())
+  lastActivityAt DateTime?
+  endedAt        DateTime?
+  durationSec    Int?
+
+  ip             String?   @db.VarChar(255)
+  userAgent      String?   @db.Text
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("UserSession") // 👈 ชื่อตารางจริงใน DB (ถ้าใน DB เป็นชื่ออื่นให้เปลี่ยนให้ตรง)
 }

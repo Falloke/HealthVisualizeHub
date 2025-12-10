@@ -1,4 +1,4 @@
-// E:\HealtRiskHub\app\api\admin\users\route.ts
+// app/api/admin/users/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/connect-db";
 import { requireAdmin } from "@/lib/auth-guards";
@@ -7,32 +7,76 @@ import bcrypt from "bcryptjs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/** GET /api/admin/users  → list users (admin only) */
+/* ---------------- GET: list users + total usage time ---------------- */
+
+// GET /api/admin/users  → list users + total usage time (seconds)
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
 
-  const users = await prisma.user.findMany({
-    where: { deletedAt: null },
-    select: {
-      id: true,
-      first_name: true,
-      last_name: true,
-      email: true,
-      role: true,
-      position: true,
-      province: true,
-      brith_date: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-    orderBy: { id: "asc" },
-  });
+  try {
+    // 1) ดึงรายชื่อ user ที่ยังไม่ถูกลบ
+    const rawUsers = await prisma.user.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+        role: true,
+        position: true,
+        province: true,
+        brith_date: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return NextResponse.json(users, { headers: { "Cache-Control": "no-store" } });
+    const ids = rawUsers.map((u) => u.id);
+    const usageByUser = new Map<number, number>();
+
+    if (ids.length > 0) {
+      // 2) รวมเวลาจากตาราง UserSession (ไม่ใช้ queryRaw แล้ว)
+      const sums = await prisma.userSession.groupBy({
+        by: ["userId"],
+        where: {
+          userId: { in: ids },
+          // นับเฉพาะ session ที่มี durationSec แล้ว (จบ session แล้ว)
+          durationSec: { not: null },
+        },
+        _sum: {
+          durationSec: true,
+        },
+      });
+
+      for (const row of sums) {
+        const sec = row._sum.durationSec ?? 0;
+        usageByUser.set(row.userId, sec);
+      }
+    }
+
+    // 3) รวม totalUsageSeconds เข้า object user แล้วส่งให้ frontend
+    const users = rawUsers.map((u) => ({
+      ...u,
+      totalUsageSeconds: usageByUser.get(u.id) ?? 0,
+    }));
+
+    return NextResponse.json(users, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (e) {
+    console.error("GET /api/admin/users error:", e);
+    return NextResponse.json(
+      { error: "ไม่สามารถดึงรายชื่อผู้ใช้ได้" },
+      { status: 500 }
+    );
+  }
 }
 
-/** POST /api/admin/users  → create user (admin only) */
+/* ---------------- POST: create user ---------------- */
+
+// POST /api/admin/users  → create user
 export async function POST(request: Request) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
@@ -83,16 +127,25 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(
+      { ...created, totalUsageSeconds: 0 },
+      { status: 201 }
+    );
   } catch (e: any) {
     if (e?.code === "P2002") {
       return NextResponse.json({ error: "อีเมลนี้ถูกใช้แล้ว" }, { status: 409 });
     }
-    return NextResponse.json({ error: "สร้างผู้ใช้ไม่สำเร็จ" }, { status: 400 });
+    console.error("POST /api/admin/users error:", e);
+    return NextResponse.json(
+      { error: "สร้างผู้ใช้ไม่สำเร็จ" },
+      { status: 400 }
+    );
   }
 }
 
-/** PUT /api/admin/users  → update user (admin only) */
+/* ---------------- PUT: update user ---------------- */
+
+// PUT /api/admin/users  → update user
 export async function PUT(request: Request) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
@@ -139,12 +192,15 @@ export async function PUT(request: Request) {
     });
 
     return NextResponse.json(updated);
-  } catch {
+  } catch (e) {
+    console.error("PUT /api/admin/users error:", e);
     return NextResponse.json({ error: "Bad Request" }, { status: 400 });
   }
 }
 
-/** DELETE /api/admin/users?id=xx  → soft delete (admin only) */
+/* ---------------- DELETE: soft delete user ---------------- */
+
+// DELETE /api/admin/users?id=xx  → soft delete user
 export async function DELETE(request: Request) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;

@@ -1,5 +1,4 @@
-import { d01_influenza } from "./../../generated/prisma/index.d";
-
+// lib/kysely/schema.ts
 import type {
   ColumnType,
   Generated,
@@ -9,11 +8,15 @@ import type {
 } from "kysely";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+/** diseases (PK: code) */
 export interface DiseasesTable {
   code: string;
   name_th: string;
   name_en: string;
 }
+
+/** d01_influenza (โต๊ะเคสจริงของโรค D01) */
 export interface D01Influenza {
   id: number;
   disease_code: string;
@@ -33,13 +36,13 @@ export interface D01Influenza {
   death_date_parsed: Date | null;
 }
 
-/** disease_details (PK/FK: disease_code -> diseases.code) */
+/** disease_details (PK/FK: disease_code -> diseases.code)
+ *  *** ไม่มี icon_url / updated_at แล้ว ***
+ */
 export interface DiseaseDetailsTable {
   disease_code: string;
   description_th: string;
   description_en: string | null;
-  icon_url: string | null;
-  updated_at: Timestamp | null;
 }
 
 /** symptoms (PK: id identity) */
