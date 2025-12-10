@@ -5,13 +5,28 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 
 const {
+  PrismaClientKnownRequestError,
+  PrismaClientUnknownRequestError,
+  PrismaClientRustPanicError,
+  PrismaClientInitializationError,
+  PrismaClientValidationError,
+  getPrismaClient,
+  sqltag,
+  empty,
+  join,
+  raw,
+  skip,
   Decimal,
+  Debug,
   objectEnumValues,
   makeStrictEnum,
+  Extensions,
+  warnOnce,
+  defineDmmfProperty,
   Public,
   getRuntime,
-  skip
-} = require('./runtime/index-browser.js')
+  createParam,
+} = require('./runtime/wasm-engine-edge.js')
 
 
 const Prisma = {}
@@ -20,79 +35,35 @@ exports.Prisma = Prisma
 exports.$Enums = {}
 
 /**
- * Prisma Client JS version: 6.14.0
- * Query Engine version: 717184b7b35ea05dfa71a3236b7af656013e1e49
+ * Prisma Client JS version: 6.16.3
+ * Query Engine version: bb420e667c1820a8c05a38023385f6cc7ef8e83a
  */
 Prisma.prismaVersion = {
-  client: "6.14.0",
-  engine: "717184b7b35ea05dfa71a3236b7af656013e1e49"
+  client: "6.16.3",
+  engine: "bb420e667c1820a8c05a38023385f6cc7ef8e83a"
 }
 
-Prisma.PrismaClientKnownRequestError = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`PrismaClientKnownRequestError is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)};
-Prisma.PrismaClientUnknownRequestError = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`PrismaClientUnknownRequestError is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.PrismaClientRustPanicError = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`PrismaClientRustPanicError is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.PrismaClientInitializationError = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`PrismaClientInitializationError is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.PrismaClientValidationError = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`PrismaClientValidationError is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
+Prisma.PrismaClientKnownRequestError = PrismaClientKnownRequestError;
+Prisma.PrismaClientUnknownRequestError = PrismaClientUnknownRequestError
+Prisma.PrismaClientRustPanicError = PrismaClientRustPanicError
+Prisma.PrismaClientInitializationError = PrismaClientInitializationError
+Prisma.PrismaClientValidationError = PrismaClientValidationError
 Prisma.Decimal = Decimal
 
 /**
  * Re-export of sql-template-tag
  */
-Prisma.sql = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`sqltag is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.empty = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`empty is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.join = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`join is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.raw = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`raw is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
+Prisma.sql = sqltag
+Prisma.empty = empty
+Prisma.join = join
+Prisma.raw = raw
 Prisma.validator = Public.validator
 
 /**
 * Extensions
 */
-Prisma.getExtensionContext = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`Extensions.getExtensionContext is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
-Prisma.defineExtension = () => {
-  const runtimeName = getRuntime().prettyName;
-  throw new Error(`Extensions.defineExtension is unable to run in this browser environment, or has been bundled for the browser (running in ${runtimeName}).
-In case this error is unexpected for you, please report it in https://pris.ly/prisma-prisma-bug-report`,
-)}
+Prisma.getExtensionContext = Extensions.getExtensionContext
+Prisma.defineExtension = Extensions.defineExtension
 
 /**
  * Shorthand utilities for JSON filtering
@@ -109,10 +80,11 @@ Prisma.NullTypes = {
 
 
 
+
+
 /**
  * Enums
  */
-
 exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
   ReadUncommitted: 'ReadUncommitted',
   ReadCommitted: 'ReadCommitted',
@@ -208,6 +180,19 @@ exports.Prisma.SavedSearchScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.UserSessionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  startedAt: 'startedAt',
+  lastActivityAt: 'lastActivityAt',
+  endedAt: 'endedAt',
+  durationSec: 'durationSec',
+  ip: 'ip',
+  userAgent: 'userAgent',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -231,36 +216,86 @@ exports.Prisma.ModelName = {
   Authenticator: 'Authenticator',
   influenzadata2567: 'influenzadata2567',
   d01_influenza: 'd01_influenza',
-  SavedSearch: 'SavedSearch'
+  SavedSearch: 'SavedSearch',
+  UserSession: 'UserSession'
 };
-
 /**
- * This is a stub Prisma Client that will error at runtime if called.
+ * Create the Client
  */
-class PrismaClient {
-  constructor() {
-    return new Proxy(this, {
-      get(target, prop) {
-        let message
-        const runtime = getRuntime()
-        if (runtime.isEdge) {
-          message = `PrismaClient is not configured to run in ${runtime.prettyName}. In order to run Prisma Client on edge runtime, either:
-- Use Prisma Accelerate: https://pris.ly/d/accelerate
-- Use Driver Adapters: https://pris.ly/d/driver-adapters
-`;
-        } else {
-          message = 'PrismaClient is unable to run in this browser environment, or has been bundled for the browser (running in `' + runtime.prettyName + '`).'
-        }
-
-        message += `
-If this is unexpected, please open an issue: https://pris.ly/prisma-prisma-bug-report`
-
-        throw new Error(message)
+const config = {
+  "generator": {
+    "name": "client",
+    "provider": {
+      "fromEnvVar": null,
+      "value": "prisma-client-js"
+    },
+    "output": {
+      "value": "E:\\HealtRiskHub\\generated\\prisma",
+      "fromEnvVar": null
+    },
+    "config": {
+      "engineType": "library"
+    },
+    "binaryTargets": [
+      {
+        "fromEnvVar": null,
+        "value": "windows",
+        "native": true
       }
-    })
+    ],
+    "previewFeatures": [],
+    "sourceFilePath": "E:\\HealtRiskHub\\prisma\\schema.prisma",
+    "isCustomOutput": true
+  },
+  "relativeEnvPaths": {
+    "rootEnvPath": null,
+    "schemaEnvPath": "../../.env"
+  },
+  "relativePath": "../../prisma",
+  "clientVersion": "6.16.3",
+  "engineVersion": "bb420e667c1820a8c05a38023385f6cc7ef8e83a",
+  "datasourceNames": [
+    "db"
+  ],
+  "activeProvider": "postgresql",
+  "postinstall": false,
+  "inlineDatasources": {
+    "db": {
+      "url": {
+        "fromEnvVar": "DATABASE_URL",
+        "value": null
+      }
+    }
+  },
+  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"../generated/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n}\n\nmodel User {\n  id            Int             @id @default(autoincrement())\n  first_name    String\n  last_name     String\n  role          String          @default(\"user\")\n  brith_date    DateTime\n  position      String\n  province      String\n  email         String          @unique\n  password      String\n  createdAt     DateTime        @default(now())\n  updatedAt     DateTime        @updatedAt\n  deletedAt     DateTime?\n  Authenticator Authenticator[]\n  sessions      Session[]\n\n  // ⬇️ เปลี่ยนจาก saved_searches saved_searches[] เป็น:\n  savedSearches SavedSearch[] // ชื่อฟิลด์จะเป็น camelCase ก็ได้\n\n  userSessions UserSession[]\n}\n\nmodel Session {\n  sessionToken String   @unique\n  expires      DateTime\n  createdAt    DateTime @default(now())\n  updatedAt    DateTime @updatedAt\n  userId       Int\n  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)\n}\n\nmodel VerificationToken {\n  identifier String\n  token      String\n  expires    DateTime\n\n  @@id([identifier, token])\n}\n\nmodel Authenticator {\n  credentialID         String  @unique\n  providerAccountId    String\n  credentialPublicKey  String\n  counter              Int\n  credentialDeviceType String\n  credentialBackedUp   Boolean\n  transports           String?\n  userId               Int\n  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)\n\n  @@id([userId, credentialID])\n}\n\nmodel influenzadata2567 {\n  id             Int     @id @default(autoincrement())\n  disease        String?\n  gender         String?\n  age_y          Int?\n  nationality    String?\n  occupation     String?\n  province       String?\n  district       String?\n  onset_date     String?\n  treated_date   String?\n  diagnosis_date String?\n  death_date     String?\n}\n\n/// This table is a partition table and requires additional setup for migrations. Visit https://pris.ly/d/partition-tables for more info.\nmodel d01_influenza {\n  id                    Int       @default(autoincrement())\n  disease_code          String\n  gender                String?\n  age_y                 Int?\n  nationality           String?\n  occupation            String?\n  province              String?\n  district              String?\n  onset_date            String?\n  treated_date          String?\n  diagnosis_date        String?\n  death_date            String?\n  onset_date_parsed     DateTime  @db.Date\n  treated_date_parsed   DateTime? @db.Date\n  diagnosis_date_parsed DateTime? @db.Date\n  death_date_parsed     DateTime? @db.Date\n\n  @@id([onset_date_parsed, id], map: \"d01_influenza_v2_pkey\")\n}\n\n/// This table is a partition table and requires additional setup for migrations. Visit https://pris.ly/d/partition-tables for more info.\n/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.\n// model d01_influenza_old {\n//   disease_code          String?\n//   gender                String?\n//   age_y                 Int?\n//   nationality           String?\n//   occupation            String?\n//   province              String?\n//   district              String?\n//   onset_date            String?\n//   treated_date          String?\n//   diagnosis_date        String?\n//   death_date            String?\n//   onset_date_parsed     DateTime  @db.Date\n//   treated_date_parsed   DateTime? @db.Date\n//   diagnosis_date_parsed DateTime? @db.Date\n//   death_date_parsed     DateTime? @db.Date\n//   diseases              diseases? @relation(fields: [disease_code], references: [code], onDelete: NoAction, onUpdate: NoAction, map: \"d01_influenza_disease_code_fkey\")\n\n//   @@index([province], map: \"idx_influenza_province\")\n//   @@ignore\n// }\n\n// model diseases {\n//   code              String              @id\n//   name_th           String\n//   name_en           String\n//   d01_influenza_old d01_influenza_old[]\n// }\n\n/// This table is a partition table and requires additional setup for migrations. Visit https://pris.ly/d/partition-tables for more info.\n/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.\nmodel influenza {\n  id             Int       @default(autoincrement())\n  disease        String?   @db.VarChar(100)\n  gender         String?   @db.VarChar(10)\n  age_y          Int?\n  nationality    String?   @db.VarChar(50)\n  occupation     String?\n  province       String    @db.VarChar(100)\n  district       String?   @db.VarChar(100)\n  onset_date     DateTime  @db.Date\n  treated_date   DateTime? @db.Date\n  diagnosis_date DateTime? @db.Date\n  death_date     DateTime? @db.Date\n\n  @@ignore\n}\n\n/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.\nmodel influenza_raw {\n  disease            String?\n  gender             String?\n  age_y              Int?\n  nationality        String?\n  occupation         String?\n  province           String?\n  district           String?\n  onset_date_raw     String?\n  treated_date_raw   String?\n  diagnosis_date_raw String?\n  death_date_raw     String?\n  onset_date         String? @db.VarChar(50)\n  treated_date       String? @db.VarChar(50)\n  diagnosis_date     String? @db.VarChar(50)\n  death_date         String? @db.VarChar(50)\n\n  @@ignore\n}\n\n/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.\nmodel influenza_staged {\n  disease               String?\n  gender                String?\n  age_y                 Int?\n  nationality           String?\n  occupation            String?\n  province              String?\n  district              String?\n  onset_date            String?\n  treated_date          String?\n  diagnosis_date        String?\n  death_date            String?\n  onset_date_parsed     DateTime? @db.Date\n  treated_date_parsed   DateTime? @db.Date\n  diagnosis_date_parsed DateTime? @db.Date\n  death_date_parsed     DateTime? @db.Date\n\n  @@ignore\n}\n\n/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.\nmodel influenza_staged_2 {\n  disease               String?\n  gender                String?\n  age_y                 Int?\n  nationality           String?\n  occupation            String?\n  province              String?\n  district              String?\n  onset_date            String?\n  treated_date          String?\n  diagnosis_date        String?\n  death_date            String?\n  onset_date_parsed     DateTime? @db.Date\n  treated_date_parsed   DateTime? @db.Date\n  diagnosis_date_parsed DateTime? @db.Date\n  death_date_parsed     DateTime? @db.Date\n\n  @@ignore\n}\n\n/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.\nmodel SavedSearch {\n  id     BigInt @id @default(autoincrement())\n  userId Int    @map(\"user_id\")\n  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)\n\n  searchName  String    @map(\"search_name\")\n  diseaseName String?   @map(\"disease_name\")\n  province    String?\n  provinceAlt String?   @map(\"province_alt\")\n  startDate   DateTime? @map(\"start_date\") @db.Date\n  endDate     DateTime? @map(\"end_date\") @db.Date\n  color       String?   @db.Char(7)\n\n  createdAt DateTime @default(now()) @map(\"created_at\") @db.Timestamptz(6)\n  updatedAt DateTime @default(now()) @map(\"updated_at\") @db.Timestamptz(6)\n\n  @@index([searchName], map: \"idx_saved_searches_search_name\")\n  @@index([userId, createdAt(sort: Desc)], map: \"idx_saved_searches_user_created\")\n  @@map(\"saved_searches\") // ← ชื่อตารางจริงใน DB\n}\n\nmodel UserSession {\n  id     Int  @id @default(autoincrement())\n  userId Int\n  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)\n\n  startedAt      DateTime  @default(now())\n  lastActivityAt DateTime?\n  endedAt        DateTime?\n  durationSec    Int?\n\n  ip        String? @db.VarChar(255)\n  userAgent String? @db.Text\n\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n\n  @@map(\"UserSession\") // 👈 ชื่อตารางจริงใน DB (ถ้าใน DB เป็นชื่ออื่นให้เปลี่ยนให้ตรง)\n}\n",
+  "inlineSchemaHash": "11680260fd44d7b65d7d42a3cc1d511634bb9c6cd1908db795dbb9d39111b79b",
+  "copyEngine": true
+}
+config.dirname = '/'
+
+config.runtimeDataModel = JSON.parse("{\"models\":{\"User\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"first_name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"last_name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"role\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"brith_date\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"position\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"province\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"email\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"password\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"deletedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"Authenticator\",\"kind\":\"object\",\"type\":\"Authenticator\",\"relationName\":\"AuthenticatorToUser\"},{\"name\":\"sessions\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"SessionToUser\"},{\"name\":\"savedSearches\",\"kind\":\"object\",\"type\":\"SavedSearch\",\"relationName\":\"SavedSearchToUser\"},{\"name\":\"userSessions\",\"kind\":\"object\",\"type\":\"UserSession\",\"relationName\":\"UserToUserSession\"}],\"dbName\":null},\"Session\":{\"fields\":[{\"name\":\"sessionToken\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"expires\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"user\",\"kind\":\"object\",\"type\":\"User\",\"relationName\":\"SessionToUser\"}],\"dbName\":null},\"VerificationToken\":{\"fields\":[{\"name\":\"identifier\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"token\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"expires\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":null},\"Authenticator\":{\"fields\":[{\"name\":\"credentialID\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"providerAccountId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"credentialPublicKey\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"counter\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"credentialDeviceType\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"credentialBackedUp\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"transports\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"user\",\"kind\":\"object\",\"type\":\"User\",\"relationName\":\"AuthenticatorToUser\"}],\"dbName\":null},\"influenzadata2567\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"disease\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"gender\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"age_y\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"nationality\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"occupation\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"province\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"district\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"onset_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"treated_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"diagnosis_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"death_date\",\"kind\":\"scalar\",\"type\":\"String\"}],\"dbName\":null},\"d01_influenza\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"disease_code\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"gender\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"age_y\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"nationality\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"occupation\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"province\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"district\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"onset_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"treated_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"diagnosis_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"death_date\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"onset_date_parsed\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"treated_date_parsed\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"diagnosis_date_parsed\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"death_date_parsed\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":null},\"SavedSearch\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"BigInt\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"Int\",\"dbName\":\"user_id\"},{\"name\":\"user\",\"kind\":\"object\",\"type\":\"User\",\"relationName\":\"SavedSearchToUser\"},{\"name\":\"searchName\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"search_name\"},{\"name\":\"diseaseName\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"disease_name\"},{\"name\":\"province\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"provinceAlt\",\"kind\":\"scalar\",\"type\":\"String\",\"dbName\":\"province_alt\"},{\"name\":\"startDate\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"start_date\"},{\"name\":\"endDate\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"end_date\"},{\"name\":\"color\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"created_at\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\",\"dbName\":\"updated_at\"}],\"dbName\":\"saved_searches\"},\"UserSession\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"userId\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"user\",\"kind\":\"object\",\"type\":\"User\",\"relationName\":\"UserToUserSession\"},{\"name\":\"startedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"lastActivityAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"endedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"durationSec\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"ip\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"userAgent\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":\"UserSession\"}},\"enums\":{},\"types\":{}}")
+defineDmmfProperty(exports.Prisma, config.runtimeDataModel)
+config.engineWasm = {
+  getRuntime: async () => require('./query_engine_bg.js'),
+  getQueryEngineWasmModule: async () => {
+    const loader = (await import('#wasm-engine-loader')).default
+    const engine = (await loader).default
+    return engine
   }
 }
+config.compilerWasm = undefined
 
+config.injectableEdgeEnv = () => ({
+  parsed: {
+    DATABASE_URL: typeof globalThis !== 'undefined' && globalThis['DATABASE_URL'] || typeof process !== 'undefined' && process.env && process.env.DATABASE_URL || undefined
+  }
+})
+
+if (typeof globalThis !== 'undefined' && globalThis['DEBUG'] || typeof process !== 'undefined' && process.env && process.env.DEBUG || undefined) {
+  Debug.enable(typeof globalThis !== 'undefined' && globalThis['DEBUG'] || typeof process !== 'undefined' && process.env && process.env.DEBUG || undefined)
+}
+
+const PrismaClient = getPrismaClient(config)
 exports.PrismaClient = PrismaClient
-
 Object.assign(exports, Prisma)
+

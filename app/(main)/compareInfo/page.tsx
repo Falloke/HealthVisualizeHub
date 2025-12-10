@@ -1,4 +1,7 @@
+import CompareInfo from "@/app/features/main/comparePage/Index";
+
 const ComparePageRender = () => {
-  return <div>Compare</div>;
+  return <CompareInfo />;
 };
+
 export default ComparePageRender;

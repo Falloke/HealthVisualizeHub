@@ -1,6 +1,6 @@
 "use client";
 
-import GraphPatientsByRegion from "@/app/components/bargraph/GraphPatientsByRegion";
+// import GraphPatientsByRegion from "@/app/components/bargraph/GraphPatientsByRegion";
 import GraphDeathsByRegion from "@/app/components/bargraph/GraphDeathsByRegion";
 import GraphByAgePatients from "@/app/components/bargraph/GraphByAgePatients";
 import GraphByAgeDeaths from "@/app/components/bargraph/GraphByAgeDeaths";
@@ -9,14 +9,17 @@ import GraphByGenderDeaths from "@/app/components/bargraph/GraphByGenderDeaths";
 import GraphProvincePatients from "@/app/components/bargraph/GraphProvinceByPatients";
 import GraphProvinceDeaths from "@/app/components/bargraph/GraphProvinceByDeaths";
 import GraphByGenderTrend from "@/app/components/linegraph/GraphByGenderTrend";
+import GraphRegionTop5 from "@/app/components/bargraph/GraphRegionTop5";
 
 const BarGraph = () => {
   return (
     <div>
       <div className="grid grid-cols-2 gap-2 md:gap-4">
+        
         <GraphProvincePatients />
         <GraphProvinceDeaths />
-        <GraphPatientsByRegion />
+        <GraphRegionTop5 />
+        {/* <GraphPatientsByRegion /> */}
         <GraphDeathsByRegion />
         <GraphByAgePatients />
         <GraphByAgeDeaths />

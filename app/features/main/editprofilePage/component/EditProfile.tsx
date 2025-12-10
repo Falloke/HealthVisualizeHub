@@ -1,3 +1,4 @@
+// app/features/main/editprofilePage/component/EditProfile.tsx
 "use client";
 
 import Image from "next/image";
@@ -21,11 +22,39 @@ type ProvinceItem = {
   Region_VaccineRollout_MOPH?: string | null;
 };
 
+// --------- helper แบ่งจังหวัดตามภูมิภาค + ทำ label เส้นยาวให้เท่ากรุงเทพฯ ---------
+function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
+  return list.reduce<Record<string, ProvinceItem[]>>((acc, p) => {
+    const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
+    if (!acc[region]) acc[region] = [];
+    acc[region].push(p);
+    return acc;
+  }, {});
+}
+
+const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
+// รูปแบบเส้นของกรุงเทพฯ ที่ใช้เป็นมาตรฐานความยาว
+const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
+const TARGET_LEN = [...BASE_LABEL].length;
+
+function makeRegionLabel(region: string): string {
+  const clean = region.trim();
+  const inner = ` ${clean} `;
+  const innerLen = [...inner].length;
+
+  const dashTotal = Math.max(4, TARGET_LEN - innerLen);
+  const left = Math.floor(dashTotal / 2);
+  const right = dashTotal - left;
+
+  return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
+}
+// -------------------------------------------------------------------
+
 const Editprofile = () => {
   const { update } = useSession();
 
   // -------- provinces ----------
-  const [provinces, setProvinces] = useState<string[]>([]);
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
   const [provErr, setProvErr] = useState<string | null>(null);
 
@@ -39,9 +68,8 @@ const Editprofile = () => {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: ProvinceItem[] = await res.json();
-        const names = data.map((p) => p.ProvinceNameThai).filter(Boolean);
-        if (!names.length) throw new Error("empty province list");
-        setProvinces(names);
+        if (!data.length) throw new Error("empty province list");
+        setProvinces(data);
       } catch (e) {
         console.error("โหลดจังหวัดล้มเหลว:", e);
         setProvErr("โหลดรายชื่อจังหวัดไม่สำเร็จ");
@@ -126,7 +154,6 @@ const Editprofile = () => {
 
       if (res.ok) {
         const updated = await res.json();
-        // อัปเดต session ให้ชื่อ/อีเมลใหม่สะท้อนทันที
         await update?.({
           user: {
             first_name: updated.profile.first_name,
@@ -156,6 +183,9 @@ const Editprofile = () => {
       </div>
     );
   }
+
+  // เตรียม group จังหวัดตามภูมิภาค
+  const provinceGroups = groupProvinces(provinces);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
@@ -224,11 +254,23 @@ const Editprofile = () => {
                   </option>
                   {!provLoading &&
                     !provErr &&
-                    provinces.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
+                    Object.entries(provinceGroups)
+                      .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                      .map(([region, items]) => (
+                        <optgroup
+                          key={region}
+                          label={makeRegionLabel(region)}
+                        >
+                          {items.map((p) => (
+                            <option
+                              key={p.ProvinceNo}
+                              value={p.ProvinceNameThai}
+                            >
+                              {p.ProvinceNameThai}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                 </select>
                 {errors.province && (
                   <p className="mt-1 text-xs text-red-500">

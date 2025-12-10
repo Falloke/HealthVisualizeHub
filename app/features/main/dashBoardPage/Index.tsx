@@ -1,69 +1,61 @@
+// D:\HealtRiskHub\app\features\main\dashBoardPage\Index.tsx
 "use client";
-import { useState, useEffect } from "react";
+
+import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useDashboardStore } from "@/store/useDashboardStore";
+
 import DashboardHeader from "app/components/header/DashBoardHeader";
-import TotalDeath from "app/components/header/TotalDeath";
-import TotalPatient from "app/components/header/TotalPatient";
 import BarGraph from "./component/BarGraph";
 import NarrativeSection from "./component/NarrativeSection";
 import SourceInfo from "app/features/main/dashBoardPage/component/SourceInfo";
 
 export const dynamic = "force-dynamic";
-export default DashboardPage;
-type DataType = {
-  totalPatients: number;
-  avgPatientsPerDay: number;
-  cumulativePatients: number;
-  totalDeaths: number;
-  avgDeathsPerDay: number;
-  cumulativeDeaths: number;
-};
-function DashboardPage() {
-  const [data, setData] = useState<DataType | null>(null);
+
+export default function DashboardPage() {
   const searchParams = useSearchParams();
-  const start_date = searchParams.get("start_date");
-  const end_date = searchParams.get("end_date");
+  const start_date = searchParams.get("start_date") || "";
+  const end_date = searchParams.get("end_date") || "";
   const province = searchParams.get("province") || "";
+  const diseaseName = searchParams.get("disease") || "";
+
+  // sync ค่าจาก query -> global store ให้กราฟ/ส่วนอื่น ๆ ใช้ต่อ
+  const { setProvince, setDateRange, setDisease } = useDashboardStore();
 
   useEffect(() => {
-    const fetchData = async () => {
+    if (province) setProvince(province);
+    if (start_date || end_date) {
+      setDateRange(start_date || undefined, end_date || undefined);
+    }
+
+    if (diseaseName) {
+      // รองรับ signature setDisease แบบเก่า/ใหม่
       try {
-        const params = new URLSearchParams();
-        if (start_date) params.set("start_date", start_date);
-        if (end_date) params.set("end_date", end_date);
-        if (province) params.set("province", province);
-
-        const response = await fetch(`/api/dashBoard?${params.toString()}`);
-
-        const result = await response.json();
-        setData(result);
-      } catch (error) {
-        console.error("Error fetching data:", error);
+        (setDisease as any)("", diseaseName, "");
+      } catch {
+        try {
+          (setDisease as any)({
+            code: "",
+            name_th: diseaseName,
+            name_en: "",
+          });
+        } catch {
+          // ไม่มี setDisease ก็ข้ามไป
+        }
       }
-    };
-
-    fetchData();
-  }, [start_date, end_date, province]);
+    }
+  }, [province, start_date, end_date, diseaseName, setProvince, setDateRange, setDisease]);
 
   return (
     <main className="min-h-screen w-full bg-white">
-      <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 md:px-6 lg:px-8">
-        <div className="flex w-full gap-4">
-          <div className="min-w-0 basis-1/3">
-            <DashboardHeader />
-          </div>
+      <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 py-4 md:px-6 lg:px-8">
+        {/* ===== หัวรายงาน เต็มความกว้างแถวบน ===== */}
+        <section className="w-full rounded-xl bg-white px-4 py-4 shadow-sm ring-1 ring-pink-100">
+          <DashboardHeader />
+        </section>
 
-          <div className="min-w-0 basis-1/3">
-            <TotalDeath data={data} />
-          </div>
-
-          <div className="min-w-0 basis-1/3">
-            <TotalPatient data={data} />
-          </div>
-        </div>
-
+        {/* ===== เนื้อหาหลักของ Dashboard ===== */}
         <BarGraph />
-
         <NarrativeSection />
         <SourceInfo />
       </div>

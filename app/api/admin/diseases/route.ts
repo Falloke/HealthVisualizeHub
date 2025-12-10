@@ -1,245 +1,190 @@
 // app/api/admin/diseases/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/connect-db";
-import { requireAdmin } from "../../_utils/requireAdmin";
+import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/auth-guards";
+import db from "@/lib/kysely/db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type CodeRow = { code: string };
-
-export async function GET(req: NextRequest) {
-  const guard = await requireAdmin(); if (guard) return guard;
-
-  const code = req.nextUrl.searchParams.get("code")?.trim();
-
-  if (!code) {
-    try {
-      const rows = await prisma.$queryRaw<CodeRow[]>`
-        (
-          SELECT DISTINCT disease_code AS code
-          FROM public.disease_details
-        )
-        UNION
-        (
-          SELECT DISTINCT disease_code AS code
-          FROM public.disease_symptoms
-        )
-        ORDER BY code ASC
-      `;
-      const items = rows.map((r) => ({
-        code: r.code,
-        name_th: null,
-        name_en: null,
-        is_active: true,
-      }));
-      return NextResponse.json({ items, total: items.length });
-    } catch (err) {
-      console.error("[/api/admin/diseases GET list] query error:", err);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
-    }
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
   }
+}
+
+/** GET: list diseases */
+export async function GET() {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
 
   try {
-    let name_th: string | null = null;
-    let name_en: string | null = null;
-    try {
-      const row = await prisma.$queryRaw<{ name_th: string | null; name_en: string | null }[]>`
-        SELECT name_th, name_en FROM public.diseases WHERE code = ${code} LIMIT 1
-      `;
-      if (row?.[0]) ({ name_th, name_en } = row[0]);
-    } catch {}
+    const items = await db
+      .selectFrom("diseases")
+      .select(["code", "name_th", "name_en"])
+      .orderBy("code", "asc")
+      .execute();
 
-    const detailRows = await prisma.$queryRaw<{ description_th: string | null; description_en: string | null }[]>`
-      SELECT description_th, description_en
-      FROM public.disease_details
-      WHERE disease_code = ${code}
-      LIMIT 1
-    `;
-    const details = {
-      description_th: detailRows?.[0]?.description_th ?? "",
-      description_en: detailRows?.[0]?.description_en ?? "",
+    return NextResponse.json({ items });
+  } catch (e) {
+    console.error("[admin/diseases] GET error:", getErrorMessage(e));
+    return NextResponse.json(
+      { error: "ไม่สามารถดึงรายการโรคได้" },
+      { status: 500 }
+    );
+  }
+}
+
+/** POST: create disease (code + names) */
+export async function POST(request: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  try {
+    const body = (await request.json().catch(() => ({}))) as {
+      code?: string;
+      name_th?: string | null;
+      name_en?: string | null;
     };
 
-    const symptomRows = await prisma.$queryRaw<{ id: number }[]>`
-      SELECT symptom_id AS id
-      FROM public.disease_symptoms
-      WHERE disease_code = ${code}
-      ORDER BY symptom_id ASC
-    `;
-    const prevRows = await prisma.$queryRaw<{ id: number; priority: number | null }[]>`
-      SELECT prevention_id AS id, priority
-      FROM public.disease_preventions
-      WHERE disease_code = ${code}
-      ORDER BY COALESCE(priority, 999999), prevention_id
-    `;
+    const rawCode = String(body.code ?? "").trim();
+    if (!rawCode) {
+      return NextResponse.json(
+        { error: "กรุณาระบุรหัสโรค (code)" },
+        { status: 422 }
+      );
+    }
 
-    return NextResponse.json({
-      code, name_th, name_en,
-      details,
-      symptoms: symptomRows ?? [],
-      preventions: prevRows ?? [],
-    });
-  } catch (err) {
-    console.error("[/api/admin/diseases GET one] query error:", err);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+    const code = rawCode.toUpperCase();
+    const name_th = (body.name_th ?? "").trim() || null;
+    const name_en = (body.name_en ?? "").trim() || null;
+
+    const existing = await db
+      .selectFrom("diseases")
+      .select("code")
+      .where("code", "=", code)
+      .executeTakeFirst();
+
+    if (existing) {
+      return NextResponse.json(
+        { error: `มีรหัสโรค ${code} อยู่แล้ว` },
+        { status: 409 }
+      );
+    }
+
+    const inserted = await db
+      .insertInto("diseases")
+      .values({ code, name_th, name_en })
+      .returning(["code", "name_th", "name_en"])
+      .executeTakeFirst();
+
+    return NextResponse.json(inserted, { status: 201 });
+  } catch (e) {
+    console.error("[admin/diseases] POST error:", getErrorMessage(e));
+    return NextResponse.json(
+      { error: "สร้างรหัสโรคไม่สำเร็จ" },
+      { status: 400 }
+    );
   }
 }
 
-export async function POST(req: NextRequest) {
-  const guard = await requireAdmin(); if (guard) return guard;
-
-  const body = (await req.json()) as {
-    code?: string;
-    name_th?: string; name_en?: string;
-    details?: { description_th?: string; description_en?: string };
-    symptomIds?: number[];
-    preventions?: { id: number; priority?: number }[];
-  };
-  const code = body.code?.trim();
-  if (!code) return NextResponse.json({ error: "code is required" }, { status: 422 });
+/** PUT: update disease names (ชื่อไทย/อังกฤษ) */
+export async function PUT(request: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
 
   try {
-    await prisma.$transaction(async (tx) => {
-      // 1) ensure diseases (3 คอลัมน์พอ) — ถ้าตาราง/คอลัมน์ไม่ตรง ให้ข้าม
-      try {
-        await tx.$executeRaw`
-          INSERT INTO public.diseases (code, name_th, name_en)
-          VALUES (${code}, ${body.name_th ?? ""}, ${body.name_en ?? null})
-          ON CONFLICT (code) DO UPDATE SET
-            name_th = EXCLUDED.name_th,
-            name_en = EXCLUDED.name_en
-        `;
-      } catch {}
+    const body = (await request.json().catch(() => ({}))) as {
+      code?: string;
+      name_th?: string | null;
+      name_en?: string | null;
+    };
 
-      // 2) details
-      await tx.$executeRaw`
-        INSERT INTO public.disease_details (disease_code, description_th, description_en)
-        VALUES (${code}, ${body.details?.description_th ?? ""}, ${body.details?.description_en ?? ""})
-        ON CONFLICT (disease_code) DO UPDATE SET
-          description_th = EXCLUDED.description_th,
-          description_en = EXCLUDED.description_en
-      `;
+    const rawCode = String(body.code ?? "").trim();
+    if (!rawCode) {
+      return NextResponse.json(
+        { error: "ต้องมีรหัสโรค (code) เพื่อแก้ไข" },
+        { status: 422 }
+      );
+    }
+    const code = rawCode.toUpperCase();
 
-      // 3) symptoms
-      await tx.$executeRaw`DELETE FROM public.disease_symptoms WHERE disease_code = ${code}`;
-      if (body.symptomIds?.length) {
-        for (const sid of body.symptomIds) {
-          if (Number.isInteger(sid)) {
-            await tx.$executeRaw`
-              INSERT INTO public.disease_symptoms (disease_code, symptom_id)
-              VALUES (${code}, ${sid})
-              ON CONFLICT DO NOTHING
-            `;
-          }
-        }
-      }
+    const updateData: { name_th?: string | null; name_en?: string | null } = {};
+    if (body.name_th !== undefined) {
+      updateData.name_th = (body.name_th ?? "").trim() || null;
+    }
+    if (body.name_en !== undefined) {
+      updateData.name_en = (body.name_en ?? "").trim() || null;
+    }
 
-      // 4) preventions
-      await tx.$executeRaw`DELETE FROM public.disease_preventions WHERE disease_code = ${code}`;
-      if (body.preventions?.length) {
-        for (const it of body.preventions) {
-          await tx.$executeRaw`
-            INSERT INTO public.disease_preventions (disease_code, prevention_id, priority)
-            VALUES (${code}, ${it.id}, ${it.priority ?? null})
-            ON CONFLICT DO NOTHING
-          `;
-        }
-      }
-    });
+    const updated = await db
+      .updateTable("diseases")
+      .set(updateData)
+      .where("code", "=", code)
+      .returning(["code", "name_th", "name_en"])
+      .executeTakeFirst();
 
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[/api/admin/diseases POST] tx error:", err);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+    if (!updated) {
+      return NextResponse.json(
+        { error: `ไม่พบรหัสโรค ${code}` },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(updated);
+  } catch (e) {
+    console.error("[admin/diseases] PUT error:", getErrorMessage(e));
+    return NextResponse.json(
+      { error: "แก้ไขข้อมูลโรคไม่สำเร็จ" },
+      { status: 400 }
+    );
   }
 }
 
-export async function PUT(req: NextRequest) {
-  const guard = await requireAdmin(); if (guard) return guard;
+/** DELETE: delete disease + relations (details + symptoms + preventions) */
+export async function DELETE(request: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
 
-  const code = req.nextUrl.searchParams.get("code")?.trim();
-  if (!code) return NextResponse.json({ error: "code is required" }, { status: 422 });
+  const { searchParams } = new URL(request.url);
+  const code = String(searchParams.get("code") ?? "").trim().toUpperCase();
 
-  const body = (await req.json()) as {
-    name_th?: string; name_en?: string;
-    details?: { description_th?: string; description_en?: string };
-    symptomIds?: number[];
-    preventions?: { id: number; priority?: number }[];
-  };
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      if (typeof body.name_th !== "undefined" || typeof body.name_en !== "undefined") {
-        try {
-          await tx.$executeRaw`
-            INSERT INTO public.diseases (code, name_th, name_en)
-            VALUES (${code}, ${body.name_th ?? ""}, ${body.name_en ?? null})
-            ON CONFLICT (code) DO UPDATE SET
-              name_th = COALESCE(EXCLUDED.name_th, public.diseases.name_th),
-              name_en = COALESCE(EXCLUDED.name_en, public.diseases.name_en)
-          `;
-        } catch {}
-      }
-
-      if (body.details) {
-        await tx.$executeRaw`
-          INSERT INTO public.disease_details (disease_code, description_th, description_en)
-          VALUES (${code}, ${body.details.description_th ?? ""}, ${body.details.description_en ?? ""})
-          ON CONFLICT (disease_code) DO UPDATE SET
-            description_th = EXCLUDED.description_th,
-            description_en = EXCLUDED.description_en
-        `;
-      }
-
-      if (body.symptomIds) {
-        await tx.$executeRaw`DELETE FROM public.disease_symptoms WHERE disease_code = ${code}`;
-        for (const sid of body.symptomIds) {
-          if (Number.isInteger(sid)) {
-            await tx.$executeRaw`
-              INSERT INTO public.disease_symptoms (disease_code, symptom_id)
-              VALUES (${code}, ${sid})
-              ON CONFLICT DO NOTHING
-            `;
-          }
-        }
-      }
-
-      if (body.preventions) {
-        await tx.$executeRaw`DELETE FROM public.disease_preventions WHERE disease_code = ${code}`;
-        for (const it of body.preventions) {
-          await tx.$executeRaw`
-            INSERT INTO public.disease_preventions (disease_code, prevention_id, priority)
-            VALUES (${code}, ${it.id}, ${it.priority ?? null})
-            ON CONFLICT DO NOTHING
-          `;
-        }
-      }
-    });
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[/api/admin/diseases PUT] tx error:", err);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  if (!code) {
+    return NextResponse.json(
+      { error: "ต้องระบุรหัสโรค (code)" },
+      { status: 422 }
+    );
   }
-}
-
-export async function DELETE(req: NextRequest) {
-  const guard = await requireAdmin(); if (guard) return guard;
-
-  const code = req.nextUrl.searchParams.get("code")?.trim();
-  if (!code) return NextResponse.json({ error: "code is required" }, { status: 422 });
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`DELETE FROM public.disease_symptoms WHERE disease_code = ${code}`;
-      await tx.$executeRaw`DELETE FROM public.disease_preventions WHERE disease_code = ${code}`;
-      await tx.$executeRaw`DELETE FROM public.disease_details   WHERE disease_code = ${code}`;
-      try { await tx.$executeRaw`DELETE FROM public.diseases WHERE code = ${code}`; } catch {}
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .deleteFrom("disease_symptoms")
+        .where("disease_code", "=", code)
+        .execute();
+
+      await trx
+        .deleteFrom("disease_preventions")
+        .where("disease_code", "=", code)
+        .execute();
+
+      await trx
+        .deleteFrom("disease_details")
+        .where("disease_code", "=", code)
+        .execute();
+
+      await trx.deleteFrom("diseases").where("code", "=", code).execute();
     });
+
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("[/api/admin/diseases DELETE] tx error:", err);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+  } catch (e) {
+    console.error("[admin/diseases] DELETE error:", getErrorMessage(e));
+    return NextResponse.json(
+      { error: "ลบโรคไม่สำเร็จ" },
+      { status: 400 }
+    );
   }
 }

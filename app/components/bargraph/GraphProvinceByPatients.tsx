@@ -19,42 +19,78 @@ import {
   niceMax,
 } from "./GraphUtils";
 
-type Resp = { province: string; region: string; patients: number };
+type ProvinceResp = { province: string; region: string; patients: number };
+
+type PatientsSummary = {
+  totalPatients: number;
+  avgPatientsPerDay: number;
+  cumulativePatients: number;
+};
+
 type Row = { province: string; region?: string; value: number };
 
 export default function GraphProvinceByPatients() {
   const { province, start_date, end_date } = useDashboardStore();
+
   const [data, setData] = useState<Row[]>([]);
+  const [summary, setSummary] = useState<PatientsSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/province-summary?start_date=${start_date}&end_date=${end_date}&province=${province}`;
-        const res = await fetch(url);
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
-        const json: Resp = text ? JSON.parse(text) : ({} as any);
-        if (!cancelled && json?.province) {
-          setData([
-            {
-              province: json.province,
-              region: json.region,
-              value: json.patients,
-            },
-          ]);
-        } else if (!cancelled) {
-          setData([]);
+
+        const qs = new URLSearchParams({
+          start_date: start_date || "",
+          end_date: end_date || "",
+          province: province || "",
+        }).toString();
+
+        const [provRes, sumRes] = await Promise.all([
+          fetch(`/api/dashBoard/province-summary?${qs}`),
+          fetch(`/api/dashBoard/patients-summary?${qs}`),
+        ]);
+
+        const provText = await provRes.text();
+        if (!provRes.ok) throw new Error(provText || "โหลดข้อมูลไม่สำเร็จ");
+        const provJson: ProvinceResp = provText
+          ? JSON.parse(provText)
+          : ({} as any);
+
+        const sumText = await sumRes.text();
+        if (!sumRes.ok) throw new Error(sumText || "โหลดข้อมูลสรุปไม่สำเร็จ");
+        const sumJson: PatientsSummary | null = sumText
+          ? JSON.parse(sumText)
+          : null;
+
+        if (!cancelled) {
+          if (provJson?.province) {
+            setData([
+              {
+                province: provJson.province,
+                region: provJson.region,
+                value: provJson.patients,
+              },
+            ]);
+          } else {
+            setData([]);
+          }
+          setSummary(sumJson);
         }
       } catch (e) {
         console.error("❌ Fetch error (province-patients):", e);
-        if (!cancelled) setData([]);
+        if (!cancelled) {
+          setData([]);
+          setSummary(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -65,12 +101,44 @@ export default function GraphProvinceByPatients() {
     [data]
   );
 
+  const headerProvince = province || data[0]?.province || "";
+
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h4 className="mb-3 font-bold">ผู้ป่วยสะสมจังหวัด {province}</h4>
+      {/* ส่วนหัวตัวเลขสรุป */}
+      <div className="mb-3">
+        <h4 className="font-bold text-gray-900">
+          ผู้ป่วยสะสมจังหวัด {headerProvince || "-"}
+        </h4>
 
+        {loading ? (
+          <p className="mt-1 text-sm text-gray-500">⏳ กำลังโหลด...</p>
+        ) : !summary ? (
+          <p className="mt-1 text-sm text-gray-500">
+            ไม่พบข้อมูลผู้ป่วยในช่วงเวลานี้
+          </p>
+        ) : (
+          <p className="text-2xl font-bold text-red-600">
+            {summary.totalPatients?.toLocaleString?.() ?? "-"}{" "}
+            <span className="text-base font-normal text-gray-800">ราย</span>
+            <span className="ml-3 align-baseline text-xs font-normal text-gray-700 sm:text-sm">
+              เฉลี่ยวันละ{" "}
+              <span className="font-semibold">
+                {summary.avgPatientsPerDay?.toLocaleString?.() ?? "-"}
+              </span>{" "}
+              คน/วัน <span className="mx-1">•</span> สะสม{" "}
+              <span className="font-semibold">
+                {summary.cumulativePatients?.toLocaleString?.() ?? "-"}
+              </span>{" "}
+              ราย
+            </span>
+          </p>
+        )}
+      </div>
+
+      {/* กราฟ */}
       {loading ? (
-        <p>⏳ กำลังโหลด...</p>
+        <p className="text-sm text-gray-500">⏳ กำลังโหลดกราฟ...</p>
       ) : (
         <ResponsiveContainer width="100%" height={180}>
           <BarChart

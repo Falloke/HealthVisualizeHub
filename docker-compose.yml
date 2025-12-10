@@ -1,24 +1,24 @@
 services:
-  healtriskhub:
-    container_name: healtriskhub-web
+  healthriskhub:
+    container_name: healthriskhub-web
     image: node:24.3.0
     restart: always
     command: "tail -F anything"
     ports:
-      - "3000:3000" # Next.js ใช้ 3000
+      - "${WEB_PORT:-3000}:3000" # Next.js ใช้ 3000
     volumes:
       - "./:/app"
     depends_on:
-      - healtriskhub-db
+      - healthriskhub-db
 
-  healtriskhub-db:
+  healthriskhub-db:
     image: postgres:15-alpine
-    container_name: healtriskhub-db
+    container_name: healthriskhub-db
     restart: always
     environment:
       POSTGRES_USER: hhub_admin
       POSTGRES_PASSWORD: Hhub333364
-      POSTGRES_DB: HealtRiskHub
+      POSTGRES_DB: HealthRiskHub
     ports:
       - "5432:5432"
     volumes:
@@ -26,19 +26,19 @@ services:
 
   metabase:
     image: metabase/metabase:latest
-    container_name: healtriskhub-metabase
+    container_name: healthriskhub-metabase
     restart: always
     ports:
-      - "3003:3000" # ใช้พอร์ตภายใน 3000 แต่ map ออกไป 3001
+      - "3003:3003" # ใช้พอร์ตภายใน 3000 แต่ map ออกไป 3001
     environment:
       MB_DB_TYPE: postgres
-      MB_DB_HOST: healtriskhub-db
+      MB_DB_HOST: healthriskhub-db
       MB_DB_PORT: 5432
-      MB_DB_DBNAME: HealtRiskHub
+      MB_DB_DBNAME: HealthRiskHub
       MB_DB_USER: hhub_admin
       MB_DB_PASS: Hhub333364
     depends_on:
-      - healtriskhub-db
+      - healthriskhub-db
 
 volumes:
   postgres_data:

@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = 'Adminhhhub@mail.com';
-  const hash = await bcrypt.hash('Admin333_364', 10);
+  const hash = await bcrypt.hash('Admin333364', 10);
 
   // สร้างถ้ายังไม่มี / ถ้ามีแล้วก็แค่อัปเดต role+password
   await prisma.user.upsert({
