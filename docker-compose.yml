@@ -5,7 +5,7 @@ services:
     restart: always
     command: "tail -F anything"
     ports:
-      - "${WEB_PORT:-3000}:3000" # Next.js ใช้ 3000
+      - "${WEB_PORT:-3001}:3000" # host:3001 -> container:3000 (ปล่อย host:3000 ไว้รันบนเครื่อง)
     volumes:
       - "./:/app"
     depends_on:
@@ -23,22 +23,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  metabase:
-    image: metabase/metabase:latest
-    container_name: healthriskhub-metabase
-    restart: always
-    ports:
-      - "3003:3003" # ใช้พอร์ตภายใน 3000 แต่ map ออกไป 3001
-    environment:
-      MB_DB_TYPE: postgres
-      MB_DB_HOST: healthriskhub-db
-      MB_DB_PORT: 5432
-      MB_DB_DBNAME: HealthRiskHub
-      MB_DB_USER: hhub_admin
-      MB_DB_PASS: Hhub333364
-    depends_on:
-      - healthriskhub-db
 
 volumes:
   postgres_data:
