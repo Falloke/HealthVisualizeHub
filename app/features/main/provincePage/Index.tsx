@@ -1,5 +1,6 @@
-// app/features/main/provincePage/Index.tsx
 "use client";
+
+// app/features/main/provincePage/Index.tsx
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -27,9 +28,9 @@ function ProvincePage() {
     diseaseCode: dCodeDash,
     diseaseNameTh: dNameDash,
   } = useDashboardStore();
+
   const setDiseaseProv = useProvincialInfoStore((s) => s.setDisease);
 
-  // sync query -> dashboard store (ใช้หัวรายงานเหมือนหน้า dashboard)
   useEffect(() => {
     if (province) setProvince(province);
     if (start_date || end_date) {
@@ -37,28 +38,37 @@ function ProvincePage() {
     }
   }, [province, start_date, end_date, setProvince, setDateRange]);
 
-  // sync โรคจาก dashboard -> store ของหน้า province (ใช้ใน DiseaseInfo)
   useEffect(() => {
     if (dCodeDash) setDiseaseProv(dCodeDash, dNameDash ?? null);
   }, [dCodeDash, dNameDash, setDiseaseProv]);
 
   return (
-    <main className="min-h-screen w-full bg-white">
-      <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 md:px-6 lg:px-8">
-        {/* หัวรายงานแบบเดียวกับ Dashboard แต่ไม่มีการ์ดจำนวนผู้ป่วย/เสียชีวิตแล้ว */}
-        <section className="w-full rounded-xl bg-white px-6 py-6 shadow-sm ring-1 ring-pink-100">
-          <DashboardHeader />
-        </section>
+    <main className="w-full bg-white">
+      <div className="mx-auto w-full max-w-[1920px] px-4 py-6 lg:px-6 lg:py-8 xl:px-8">
+        <div className="space-y-6 lg:space-y-8">
+          {/* Header */}
+          <section className="w-full overflow-hidden rounded-xl bg-white p-4 lg:p-6 shadow-sm ring-1 ring-pink-100">
+            <DashboardHeader />
+          </section>
 
-        {/* กราฟหลักของจังหวัด */}
-        <BarGraph />
+          {/* Graph */}
+          <section className="w-full overflow-hidden rounded-xl bg-white p-4 lg:p-6 shadow-sm ring-1 ring-gray-100">
+            <BarGraph />
+          </section>
 
-        {/* ข้อมูลโรคเฉพาะจังหวัด */}
-        <DiseaseInfo />
+          {/* Disease info */}
+          <section className="w-full overflow-hidden rounded-xl bg-white p-4 lg:p-6 shadow-sm ring-1 ring-gray-100">
+            <DiseaseInfo />
+          </section>
 
-        {/* บทวิเคราะห์ AI + แหล่งที่มาข้อมูล */}
-        <NarrativeSection />
-        <SourceInfo />
+          {/* ✅ AI narrative: ไม่ห่อด้วย section แล้ว เพื่อไม่ให้ซ้อนกัน */}
+          <NarrativeSection />
+
+          {/* Sources */}
+          <section className="w-full overflow-hidden rounded-xl bg-white p-4 lg:p-6 shadow-sm ring-1 ring-gray-100">
+            <SourceInfo />
+          </section>
+        </div>
       </div>
     </main>
   );

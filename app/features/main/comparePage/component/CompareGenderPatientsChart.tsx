@@ -1,7 +1,6 @@
-// app/features/main/comparePage/component/CompareGenderPatientsChart.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -24,22 +23,14 @@ type GenderSummary = {
   unknown: number;
 };
 
-type APIResp = {
-  ok?: boolean;
-  main?: GenderSummary;
-  compare?: GenderSummary;
-  error?: string;
-};
-
 type Row = {
-  label: string; // ใช้บนแกน Y เช่น "กรุงเทพมหานคร • ชาย"
+  label: string; // “จังหวัด • เพศ”
   province: string;
   gender: "male" | "female" | "unknown";
   provinceType: "main" | "compare";
   value: number;
 };
 
-// สี: จังหวัดหลัก = โทนเข้ม, จังหวัดเปรียบเทียบ = โทนอ่อน
 const MAIN_MALE = "#0EA5E9";
 const MAIN_FEMALE = "#EC4899";
 const MAIN_UNKNOWN = "#9CA3AF";
@@ -48,16 +39,8 @@ const COMPARE_MALE = "#7DD3FC";
 const COMPARE_FEMALE = "#F9A8D4";
 const COMPARE_UNKNOWN = "#D1D5DB";
 
-function colorForRow(r: Row): string {
-  if (r.gender === "male") {
-    return r.provinceType === "main" ? MAIN_MALE : COMPARE_MALE;
-  }
-  if (r.gender === "female") {
-    return r.provinceType === "main" ? MAIN_FEMALE : COMPARE_FEMALE;
-  }
-  // unknown
-  return r.provinceType === "main" ? MAIN_UNKNOWN : COMPARE_UNKNOWN;
-}
+const TITLE_W = 383.2;
+const TITLE_H = 48;
 
 function genderLabel(g: Row["gender"]): string {
   if (g === "male") return "ชาย";
@@ -65,148 +48,215 @@ function genderLabel(g: Row["gender"]): string {
   return "ไม่ระบุ";
 }
 
-function CombinedGenderPatientsTooltip({ active, payload }: any) {
+function colorForRow(r: Row): string {
+  if (r.gender === "male")
+    return r.provinceType === "main" ? MAIN_MALE : COMPARE_MALE;
+  if (r.gender === "female")
+    return r.provinceType === "main" ? MAIN_FEMALE : COMPARE_FEMALE;
+  return r.provinceType === "main" ? MAIN_UNKNOWN : COMPARE_UNKNOWN;
+}
+
+const CombinedGenderPatientsTooltip = React.memo(function CombinedGenderPatientsTooltip({
+  active,
+  payload,
+}: any) {
   if (!active || !payload || payload.length === 0) return null;
-  const row = payload[0].payload as Row;
-  const gText = genderLabel(row.gender);
-  const typeText =
-    row.provinceType === "main" ? "จังหวัดหลัก" : "จังหวัดที่เปรียบเทียบ";
+  const row = payload[0]?.payload as Row | undefined;
+  if (!row) return null;
 
   return (
     <div className="rounded-xl bg-white px-4 py-3 shadow-lg ring-1 ring-gray-200">
-      <div className="mb-1 text-base font-bold text-gray-900">
-        {row.province}
-      </div>
+      <div className="mb-1 text-base font-bold text-gray-900">{row.province}</div>
       <div className="text-sm text-gray-800">
-        {gText} ({typeText}) :{" "}
+        ผู้ป่วยสะสม • {genderLabel(row.gender)} :{" "}
         <span className="font-extrabold">{TH_NUMBER(row.value)}</span> ราย
       </div>
     </div>
   );
+});
+
+function renderValueLabel(p: any) {
+  const val = Number(p.value ?? 0);
+  if (!Number.isFinite(val) || val <= 0) return null;
+  const x = Number(p.x ?? 0) + Number(p.width ?? 0) + 6;
+  const y = Number(p.y ?? 0) + Number(p.height ?? 0) / 2 + 4;
+  return (
+    <text x={x} y={y} fontSize={12} fill="#374151">
+      {TH_NUMBER(val)} ราย
+    </text>
+  );
 }
 
+function buildRows(main?: GenderSummary, compare?: GenderSummary): Row[] {
+  const out: Row[] = [];
+
+  const pushAll = (s: GenderSummary, provinceType: Row["provinceType"]) => {
+    const prov = String(s.province ?? "");
+    out.push(
+      {
+        label: `${prov} • ชาย`,
+        province: prov,
+        gender: "male",
+        provinceType,
+        value: Number(s.male ?? 0),
+      },
+      {
+        label: `${prov} • หญิง`,
+        province: prov,
+        gender: "female",
+        provinceType,
+        value: Number(s.female ?? 0),
+      },
+      {
+        label: `${prov} • ไม่ระบุ`,
+        province: prov,
+        gender: "unknown",
+        provinceType,
+        value: Number(s.unknown ?? 0),
+      }
+    );
+  };
+
+  if (main) pushAll(main, "main");
+  if (compare) pushAll(compare, "compare");
+
+  return out.filter((r) => Number.isFinite(r.value) && r.value > 0);
+}
+
+function normalizeMainCompare(input: unknown): {
+  main?: GenderSummary;
+  compare?: GenderSummary;
+  ok: boolean;
+  error?: string;
+} {
+  if (!input || typeof input !== "object")
+    return { ok: false, error: "invalid response" };
+  const obj: any = input;
+
+  if (obj.ok === false) return { ok: false, error: obj.error || "api error" };
+
+  const main = obj.main ?? obj.data?.main;
+  const compare = obj.compare ?? obj.data?.compare;
+
+  return { ok: true, main, compare };
+}
+
+function sumSummary(s?: GenderSummary) {
+  if (!s) return 0;
+  return Number(s.male ?? 0) + Number(s.female ?? 0) + Number(s.unknown ?? 0);
+}
+
+type CacheEntry = { at: number; rows: Row[]; noPatients: boolean };
+const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
+
 export default function CompareGenderPatientsChart() {
-  const { start_date, end_date } = useDashboardStore();
+  const { start_date, end_date, diseaseCode } = useDashboardStore(); // ✅ เพิ่ม diseaseCode
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [noPatients, setNoPatients] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
 
+  const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
+  const inFlightRef = useRef<Map<string, AbortController>>(new Map());
+
+  const requestUrl = useMemo(() => {
+    if (!hasBoth) return "";
+    const qs = new URLSearchParams();
+    qs.set("disease", diseaseCode || ""); // ✅ ส่งโรค
+    qs.set("start_date", start_date || "");
+    qs.set("end_date", end_date || "");
+    qs.set("mainProvince", mainProvince!);
+    qs.set("compareProvince", compareProvince!);
+    return `/api/compareInfo/gender-patients?${qs.toString()}`;
+  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
+
   useEffect(() => {
-    if (!hasBoth) {
+    if (!hasBoth || !requestUrl) {
       setRows([]);
       setLoading(false);
+      setError(null);
+      setNoPatients(false);
       return;
     }
 
-    let cancelled = false;
+    setError(null);
+    setNoPatients(false);
+
+    const now = Date.now();
+    const cached = cacheRef.current.get(requestUrl);
+    if (cached && now - cached.at < CLIENT_CACHE_TTL_MS) {
+      setRows(cached.rows);
+      setNoPatients(cached.noPatients);
+      return;
+    }
+
+    const prev = inFlightRef.current.get(requestUrl);
+    if (prev) prev.abort();
+
+    const ac = new AbortController();
+    inFlightRef.current.set(requestUrl, ac);
 
     (async () => {
       try {
         setLoading(true);
 
-        const qs = new URLSearchParams({
-          start_date: start_date || "",
-          end_date: end_date || "",
-          mainProvince: mainProvince!,
-          compareProvince: compareProvince!,
+        const res = await fetch(requestUrl, {
+          signal: ac.signal,
+          headers: { Accept: "application/json" },
+          cache: "no-store",
         });
 
-        const res = await fetch(
-          `/api/compareInfo/gender-patients?${qs.toString()}`,
-          { cache: "no-store" }
-        );
-
-        const text = await res.text();
+        const text = await res.text().catch(() => "");
         if (!res.ok)
           throw new Error(text || "โหลดข้อมูลเปรียบเทียบผู้ป่วยตามเพศไม่สำเร็จ");
 
-        const json: APIResp = text ? JSON.parse(text) : {};
-        if (cancelled) return;
-
-        const result: Row[] = [];
-        const main = json.main;
-        const compare = json.compare;
-
-        if (main) {
-          if (main.male > 0) {
-            result.push({
-              label: `${main.province} • ชาย`,
-              province: main.province,
-              gender: "male",
-              provinceType: "main",
-              value: main.male,
-            });
-          }
-          if (main.female > 0) {
-            result.push({
-              label: `${main.province} • หญิง`,
-              province: main.province,
-              gender: "female",
-              provinceType: "main",
-              value: main.female,
-            });
-          }
-          if (main.unknown > 0) {
-            result.push({
-              label: `${main.province} • ไม่ระบุ`,
-              province: main.province,
-              gender: "unknown",
-              provinceType: "main",
-              value: main.unknown,
-            });
-          }
+        let json: unknown = {};
+        try {
+          json = text ? JSON.parse(text) : {};
+        } catch {
+          json = {};
         }
 
-        if (compare) {
-          if (compare.male > 0) {
-            result.push({
-              label: `${compare.province} • ชาย`,
-              province: compare.province,
-              gender: "male",
-              provinceType: "compare",
-              value: compare.male,
-            });
-          }
-          if (compare.female > 0) {
-            result.push({
-              label: `${compare.province} • หญิง`,
-              province: compare.province,
-              gender: "female",
-              provinceType: "compare",
-              value: compare.female,
-            });
-          }
-          if (compare.unknown > 0) {
-            result.push({
-              label: `${compare.province} • ไม่ระบุ`,
-              province: compare.province,
-              gender: "unknown",
-              provinceType: "compare",
-              value: compare.unknown,
-            });
-          }
-        }
+        const { ok, main, compare, error: e } = normalizeMainCompare(json);
+        if (!ok) throw new Error(e || "ไม่สามารถโหลดข้อมูลได้");
 
-        if (!cancelled) setRows(result);
-      } catch (err) {
+        const total = sumSummary(main) + sumSummary(compare);
+        const np = total === 0;
+
+        const built = np ? [] : buildRows(main, compare);
+
+        cacheRef.current.set(requestUrl, { at: Date.now(), rows: built, noPatients: np });
+        setRows(built);
+        setNoPatients(np);
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
         console.error("❌ Fetch error (compare gender-patients):", err);
-        if (!cancelled) setRows([]);
+        setRows([]);
+        setNoPatients(false);
+        setError(err?.message || "ไม่สามารถโหลดข้อมูลได้");
       } finally {
-        if (!cancelled) setLoading(false);
+        inFlightRef.current.delete(requestUrl);
+        setLoading(false);
       }
     })();
 
     return () => {
-      cancelled = true;
+      ac.abort();
+      inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, mainProvince, compareProvince, start_date, end_date]);
+  }, [hasBoth, requestUrl]);
 
   const xMax = useMemo(() => {
-    const maxVal = Math.max(0, ...rows.map((r) => Number(r.value ?? 0)));
-    return niceMax(maxVal);
+    let m = 0;
+    for (const r of rows) {
+      const v = Number(r.value ?? 0);
+      if (Number.isFinite(v)) m = Math.max(m, v);
+    }
+    return niceMax(m);
   }, [rows]);
 
   const rightMargin = useMemo(() => {
@@ -217,29 +267,37 @@ export default function CompareGenderPatientsChart() {
   if (!hasBoth) {
     return (
       <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
-        (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar
-        ให้ครบก่อน เพื่อดูกราฟเปรียบเทียบผู้ป่วยสะสมแยกตามเพศ)
+        (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar ให้ครบก่อน
+        เพื่อดูกราฟเปรียบเทียบผู้ป่วยสะสมแยกตามเพศ)
       </div>
     );
   }
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h3 className="mb-1 text-lg font-bold">
+      <h3
+        className="mb-1 text-lg font-bold whitespace-nowrap overflow-hidden text-ellipsis"
+        style={{ width: TITLE_W, height: TITLE_H, lineHeight: `${TITLE_H}px` }}
+      >
         เปรียบเทียบผู้ป่วยสะสมแยกตามเพศ
       </h3>
-      <p className="mb-3 text-xs text-gray-600">
-        ช่วงเวลา: {start_date || "—"} – {end_date || "—"} | จังหวัดหลัก:{" "}
-        <span className="font-semibold">{mainProvince}</span> | จังหวัดเปรียบเทียบ:{" "}
-        <span className="font-semibold">{compareProvince}</span>
-      </p>
 
-      {loading ? (
-        <p>⏳ กำลังโหลด...</p>
-      ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
-      ) : (
-        <>
+      {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
+
+      <div className="relative" aria-busy={loading} aria-live="polite">
+        {loading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded bg-white/60 text-sm text-gray-700">
+            ⏳ กำลังโหลด...
+          </div>
+        )}
+
+        {!loading && noPatients ? (
+          <p className="text-sm font-medium text-gray-700">
+            ไม่มีผู้ป่วยในช่วงเวลานี้
+          </p>
+        ) : !loading && rows.length === 0 ? (
+          <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
+        ) : (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart
               data={rows}
@@ -255,6 +313,7 @@ export default function CompareGenderPatientsChart() {
                 domain={[0, xMax]}
                 tickMargin={8}
               />
+
               <YAxis
                 type="category"
                 dataKey="label"
@@ -264,86 +323,51 @@ export default function CompareGenderPatientsChart() {
 
               <Tooltip
                 content={<CombinedGenderPatientsTooltip />}
-                cursor={{ fill: "rgba(0,0,0,0.04)" }}
                 wrapperStyle={{ zIndex: 10 }}
                 offset={12}
               />
 
-              <Bar dataKey="value" barSize={14} radius={[4, 4, 4, 4]}>
-                <LabelList
-                  dataKey="value"
-                  position="right"
-                  content={(p: any) => {
-                    const val = Number(p.value ?? 0);
-                    const x = Number(p.x ?? 0) + Number(p.width ?? 0) + 6;
-                    const y =
-                      Number(p.y ?? 0) + Number(p.height ?? 0) / 2 + 4;
-                    return (
-                      <text x={x} y={y} fontSize={12} fill="#374151">
-                        {TH_NUMBER(val)} ราย
-                      </text>
-                    );
-                  }}
-                />
+              <Bar
+                dataKey="value"
+                barSize={14}
+                radius={[4, 4, 4, 4]}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="value" position="right" content={renderValueLabel} />
                 {rows.map((r, idx) => (
-                  <Cell key={idx} fill={colorForRow(r)} />
+                  <Cell key={`${r.label}-${idx}`} fill={colorForRow(r)} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        )}
+      </div>
 
-          {/* Legend แยกสี */}
-          <div className="mt-3 text-xs text-gray-600">
-            <div className="flex flex-wrap items-center gap-4">
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: MAIN_MALE }}
-                />
-                ชาย – จังหวัดหลัก
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: COMPARE_MALE }}
-                />
-                ชาย – จังหวัดเปรียบเทียบ
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-4">
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: MAIN_FEMALE }}
-                />
-                หญิง – จังหวัดหลัก
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: COMPARE_FEMALE }}
-                />
-                หญิง – จังหวัดเปรียบเทียบ
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-4">
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: MAIN_UNKNOWN }}
-                />
-                ไม่ระบุ – จังหวัดหลัก
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className="inline-block h-3 w-3 rounded"
-                  style={{ background: COMPARE_UNKNOWN }}
-                />
-                ไม่ระบุ – จังหวัดเปรียบเทียบ
-              </span>
-            </div>
+      {/* ✅ ซ่อน Legend เมื่อไม่มีข้อมูล/ไม่มีผู้ป่วย */}
+      {!noPatients && rows.length > 0 && (
+        <div className="mt-3 text-xs text-gray-600">
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded" style={{ background: MAIN_MALE }} />
+              ชาย – {mainProvince}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded" style={{ background: COMPARE_MALE }} />
+              ชาย – {compareProvince}
+            </span>
           </div>
-        </>
+
+          <div className="mt-1 flex flex-wrap items-center gap-4">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded" style={{ background: MAIN_FEMALE }} />
+              หญิง – {mainProvince}
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block h-3 w-3 rounded" style={{ background: COMPARE_FEMALE }} />
+              หญิง – {compareProvince}
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );

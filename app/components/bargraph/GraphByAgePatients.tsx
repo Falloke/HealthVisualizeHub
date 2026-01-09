@@ -1,3 +1,4 @@
+// D:\HealtRiskHub\app\components\bargraph\GraphByAgePatients.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -9,8 +10,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   LabelList,
+  Cell,
 } from "recharts";
-import type { TooltipProps, LabelProps } from "recharts";
+import type { TooltipProps } from "recharts";
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
 
@@ -30,19 +32,31 @@ function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
   return r;
 }
 
-// Label ปลายแท่ง: "ช่วงวัย + จำนวน ราย"
-function ValueLabelAgeRight(props: any) {
-  const { x, y, width, value, payload } = props;
-  const v = Number(value ?? 0);
-  if (!isFinite(v)) return null;
-  const short = getAgeLabel(payload?.ageRange ?? "");
-  const xx = Number(x) + Number(width) + 8;
-  const yy = Number(y) + 14;
-  return (
-    <text x={xx} y={yy} fontSize={13} fill="#555">
-      {short} {TH_NUMBER(v)} ราย
-    </text>
-  );
+/** ✅ สีตามความเสี่ยง (มาก → น้อย) */
+const RISK_COLORS = ["#B00020", "#F4511E", "#FFB300", "#009688"] as const;
+const THRESHOLD_VERY_HIGH = 8000;
+const THRESHOLD_HIGH = 4000;
+const THRESHOLD_MEDIUM = 2000;
+
+function colorByRisk(patients: number): string {
+  const v = Number(patients || 0);
+  if (v >= THRESHOLD_VERY_HIGH) return RISK_COLORS[0]; // สูงมาก
+  if (v >= THRESHOLD_HIGH) return RISK_COLORS[1]; // สูง
+  if (v >= THRESHOLD_MEDIUM) return RISK_COLORS[2]; // ปานกลาง
+  return RISK_COLORS[3]; // ต่ำ
+}
+
+/** ✅ ข้อความ legend แบบย่อ */
+function riskLegendText() {
+  const v = TH_NUMBER(THRESHOLD_VERY_HIGH);
+  const h = TH_NUMBER(THRESHOLD_HIGH);
+  const m = TH_NUMBER(THRESHOLD_MEDIUM);
+  return {
+    veryHigh: `สูงมาก (${v}+ ราย)`,
+    high: `สูง (${h} ถึง ${TH_NUMBER(THRESHOLD_VERY_HIGH - 1)} ราย)`,
+    medium: `ปานกลาง (${m} ถึง ${TH_NUMBER(THRESHOLD_HIGH - 1)} ราย)`,
+    low: `ต่ำ (น้อยกว่า ${m} ราย)`,
+  };
 }
 
 /* Tooltip: ช่วงอายุ (คำอธิบาย) + จำนวน(ราย) */
@@ -107,11 +121,14 @@ export default function GraphPatientsByAge() {
     [data]
   );
 
+  const legend = useMemo(() => riskLegendText(), []);
+
   return (
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
         ผู้ป่วยสะสมรายช่วงอายุ ({province || "—"})
       </h4>
+
       {loading ? (
         <p>⏳ กำลังโหลด...</p>
       ) : (
@@ -119,7 +136,7 @@ export default function GraphPatientsByAge() {
           <BarChart
             data={data}
             layout="vertical"
-            margin={{ top: 8, right: 64, bottom: 16, left: 8 }} // ชิดซ้าย
+            margin={{ top: 8, right: 64, bottom: 16, left: 8 }}
             barCategoryGap="4%"
             barGap={0}
           >
@@ -130,7 +147,7 @@ export default function GraphPatientsByAge() {
               tickMargin={8}
               allowDecimals={false}
             />
-            {/* แกนซ้ายกะทัดรัดเพื่อให้ชิดซ้ายจริง แสดงแค่ 0-4, 5-9, ... */}
+
             <YAxis
               type="category"
               dataKey="ageRange"
@@ -138,15 +155,22 @@ export default function GraphPatientsByAge() {
               interval={0}
               tick={{ fontSize: 12, fill: "#6B7280" }}
             />
+
             <Tooltip content={<AgeTooltip />} />
+
             <Bar
               dataKey="patients"
-              fill="#004680"
               name="ผู้ป่วยสะสม"
               barSize={26}
               radius={[0, 6, 6, 0]}
+              fill={RISK_COLORS[3]} // default
+              isAnimationActive={false}
             >
-              {/* ✅ ปลายแท่ง: "วัยเรียน 7,422 ราย" */}
+              {/* ✅ สีรายแท่งตามความเสี่ยง */}
+              {data.map((row, idx) => (
+                <Cell key={`cell-${idx}`} fill={colorByRisk(row.patients)} />
+              ))}
+
               <LabelList
                 dataKey="patients"
                 content={(p: any) => {
@@ -163,11 +187,58 @@ export default function GraphPatientsByAge() {
                 }}
               />
             </Bar>
-
-            {/* ✅ ปลายแท่ง: “ช่วงวัย + จำนวน ราย” */}
           </BarChart>
         </ResponsiveContainer>
       )}
+
+      {/* ✅ เอากล่อง “ระดับความเสี่ยง” มาด้วย */}
+      <div className="mt-2 rounded border px-3 py-2 text-sm">
+        <div className="mb-1 font-semibold">ระดับความเสี่ยง</div>
+
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="inline-block h-3 w-3 rounded"
+              style={{ background: RISK_COLORS[0] }}
+            />
+            {legend.veryHigh}
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="inline-block h-3 w-3 rounded"
+              style={{ background: RISK_COLORS[1] }}
+            />
+            {legend.high}
+          </span>
+        </div>
+
+        <div className="mt-1 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="inline-block h-3 w-3 rounded"
+              style={{ background: RISK_COLORS[2] }}
+            />
+            {legend.medium}
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="inline-block h-3 w-3 rounded"
+              style={{ background: RISK_COLORS[3] }}
+            />
+            {legend.low}
+          </span>
+        </div>
+      </div>
+
+      {/* ✅ ข้อความอ้างอิง (เหมือนกราฟภูมิภาค) */}
+      <p className="mt-2 text-xs text-gray-500">
+        อ้างอิงเกณฑ์จาก DDC: สูงมาก {TH_NUMBER(THRESHOLD_VERY_HIGH)}+ ราย, สูง{" "}
+        {TH_NUMBER(THRESHOLD_HIGH)} ถึง{" "}
+        {TH_NUMBER(THRESHOLD_VERY_HIGH - 1)} ราย, ปานกลาง{" "}
+        {TH_NUMBER(THRESHOLD_MEDIUM)} ถึง{" "}
+        {TH_NUMBER(THRESHOLD_HIGH - 1)} ราย, ต่ำ น้อยกว่า{" "}
+        {TH_NUMBER(THRESHOLD_MEDIUM)} ราย
+      </p>
     </div>
   );
 }

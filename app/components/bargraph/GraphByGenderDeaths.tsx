@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphByGenderDeaths.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -27,8 +26,24 @@ type ChartRow = {
   unknown?: number;
 };
 
-function LineStyleGenderTooltip({ active, label, payload }) {
+type TooltipItem = {
+  dataKey?: string;
+  value?: number | string;
+  payload?: ChartRow;
+};
+
+type GenderTooltipProps = {
+  active?: boolean;
+  label?: string | number;
+  payload?: TooltipItem[];
+};
+
+function LineStyleGenderTooltip({ active, label, payload }: GenderTooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
+
+  const row = (payload[0]?.payload ?? {}) as ChartRow;
+  const provinceName = row?.province ?? String(label ?? "");
+  const provinceLabel = provinceName ? `จังหวัด${provinceName}` : "ทุกจังหวัด";
 
   const maleItem = payload.find((p) => p.dataKey === "male");
   const femaleItem = payload.find((p) => p.dataKey === "female");
@@ -40,8 +55,13 @@ function LineStyleGenderTooltip({ active, label, payload }) {
 
   return (
     <div className="rounded-xl bg-white px-4 py-3 shadow-lg ring-1 ring-gray-200">
-      <div className="mb-2 text-base font-bold text-gray-900">
-        {String(label)}
+      <div className="mb-2 flex items-center gap-2">
+        <div className="text-base font-bold text-gray-900">
+          ผู้เสียชีวิตสะสม
+        </div>
+        <div className="text-base font-bold text-gray-900">
+          {provinceLabel}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 text-gray-800">
@@ -79,37 +99,47 @@ export default function GraphByGenderDeaths() {
   const [rows, setRows] = useState<ChartRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const provinceLabel = (province || "").trim();
+  const titleProvinceText = provinceLabel ? `จังหวัด${provinceLabel}` : "ทุกจังหวัด";
+
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/gender-deaths?start_date=${start_date}&end_date=${end_date}&province=${province}`;
+
+        const url = `/api/dashBoard/gender-deaths?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
+          provinceLabel
+        )}`;
+
         const res = await fetch(url);
         if (!res.ok) throw new Error("โหลดข้อมูลผู้เสียชีวิตไม่สำเร็จ");
         const json = (await res.json()) as APIRow[];
 
-        // 👉 แปลงเป็นแถวเดียวแบบเดียวกับผู้ป่วย
         const male = Number(json.find((r) => r.gender === "ชาย")?.value ?? 0);
-        const female = Number(
-          json.find((r) => r.gender === "หญิง")?.value ?? 0
-        );
-        const unknown = Number(
-          json.find((r) => r.gender === "ไม่ระบุ")?.value ?? 0
-        );
+        const female = Number(json.find((r) => r.gender === "หญิง")?.value ?? 0);
+        const unknown = Number(json.find((r) => r.gender === "ไม่ระบุ")?.value ?? 0);
 
-        setRows([{ province: province || "รวม", male, female, unknown }]);
+        if (cancelled) return;
+        setRows([{ province: provinceLabel || "ทุกจังหวัด", male, female, unknown }]);
       } catch (err) {
         console.error("❌ Fetch error (gender-deaths):", err);
-        setRows([
-          { province: province || "รวม", male: 0, female: 0, unknown: 0 },
-        ]);
+        if (!cancelled) {
+          setRows([
+            { province: provinceLabel || "ทุกจังหวัด", male: 0, female: 0, unknown: 0 },
+          ]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [province, start_date, end_date]);
 
-  // สเกลแกน X และกันล้นขวา (เหมือนผู้ป่วย)
+    return () => {
+      cancelled = true;
+    };
+  }, [provinceLabel, start_date, end_date]);
+
   const xMax = useMemo(() => {
     const maxVal = Math.max(
       0,
@@ -129,7 +159,9 @@ export default function GraphByGenderDeaths() {
 
   return (
     <div className="overflow-hidden rounded bg-white p-4 shadow">
-      <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมแยกตามเพศ {province}</h4>
+      <h4 className="mb-2 font-bold">
+        ผู้เสียชีวิตสะสมแยกตามเพศ {titleProvinceText}
+      </h4>
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>
@@ -150,7 +182,6 @@ export default function GraphByGenderDeaths() {
               tickMargin={8}
             />
 
-            {/* ✅ เหมือนฝั่งผู้ป่วย */}
             <YAxis
               dataKey="province"
               type="category"
@@ -165,7 +196,6 @@ export default function GraphByGenderDeaths() {
               offset={12}
             />
 
-            {/* ✅ เพิ่ม legend ให้เหมือนกัน */}
             <Legend
               verticalAlign="bottom"
               align="center"
@@ -173,13 +203,13 @@ export default function GraphByGenderDeaths() {
               wrapperStyle={{ fontSize: 12, lineHeight: "12px" }}
             />
 
-            {/* Bar สี/ขนาดเท่ากันกับผู้ป่วย */}
             <Bar
               dataKey="male"
               name="ชาย"
               fill="#4FC3F7"
               barSize={14}
               radius={[4, 4, 4, 4]}
+              isAnimationActive={false}
             >
               <LabelList
                 dataKey="male"
@@ -203,6 +233,7 @@ export default function GraphByGenderDeaths() {
               fill="#F48FB1"
               barSize={14}
               radius={[4, 4, 4, 4]}
+              isAnimationActive={false}
             >
               <LabelList
                 dataKey="female"
@@ -220,7 +251,6 @@ export default function GraphByGenderDeaths() {
               />
             </Bar>
 
-            {/* ถ้ามี “ไม่ระบุเพศ” ให้โชว์เหมือนกัน */}
             {rows.some((r) => (r.unknown ?? 0) > 0) && (
               <Bar
                 dataKey="unknown"
@@ -228,6 +258,7 @@ export default function GraphByGenderDeaths() {
                 fill="#BDBDBD"
                 barSize={14}
                 radius={[4, 4, 4, 4]}
+                isAnimationActive={false}
               >
                 <LabelList
                   dataKey="unknown"

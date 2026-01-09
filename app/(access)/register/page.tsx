@@ -140,130 +140,143 @@ export default function RegisterPage() {
   const provinceGroups = groupProvinces(provinces);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
-      <div className="flex w-full max-w-6xl overflow-hidden rounded-xl bg-white">
-        <div className="flex w-1/2 items-center justify-center bg-pink-100">
-          <Image src="/images/register.png" alt="Register" width={400} height={400} />
-        </div>
+    <>
+      {/* พื้นหลังฟ้าเต็มพื้นที่ระหว่าง navbar กับ footer */}
+      <div className="flex min-h-[calc(100vh-4rem-4rem)] items-center justify-center bg-[#e6f7ff] px-4 py-8">
+        {/* การ์ดสมัครสมาชิก */}
+        <div className="flex w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-lg">
+          {/* ฝั่งซ้าย: illustration (ซ่อนบนจอเล็ก) */}
+          <div className="hidden w-1/2 items-center justify-center bg-[#03a9f4] md:flex">
+            <Image
+              src="/images/register.png"
+              alt="Register"
+              width={420}
+              height={420}
+              className="h-auto w-[80%] max-w-sm"
+              priority
+            />
+          </div>
 
-        <div className="w-1/2 p-10">
-          <h2 className="mb-8 text-center text-3xl font-bold text-pink-600">
-            สมัครสมาชิก
-          </h2>
+          {/* ฝั่งขวา: ฟอร์ม */}
+          <div className="w-full p-8 md:w-1/2 md:p-10">
+            <h2 className="mb-6 text-center text-3xl font-bold text-[#0077cc]">
+              สมัครสมาชิก
+            </h2>
 
-          <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>
-            {/* ชื่อ + นามสกุล */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <InputWithLabel
-                id="firstName"
-                label="ชื่อ*"
-                placeholder="กรุณากรอกชื่อ"
-                error={errors.firstName?.message}
-                {...register("firstName")}
-              />
-              <InputWithLabel
-                id="lastName"
-                label="นามสกุล*"
-                placeholder="กรุณากรอกนามสกุล"
-                error={errors.lastName?.message}
-                {...register("lastName")}
-              />
+            <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>
+              {/* ชื่อ + นามสกุล */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <InputWithLabel
+                  id="firstName"
+                  label="ชื่อ*"
+                  placeholder="กรุณากรอกชื่อ"
+                  error={errors.firstName?.message}
+                  {...register("firstName")}
+                />
+                <InputWithLabel
+                  id="lastName"
+                  label="นามสกุล*"
+                  placeholder="กรุณากรอกนามสกุล"
+                  error={errors.lastName?.message}
+                  {...register("lastName")}
+                />
 
-              {/* จังหวัด + วันเกิด (อยู่แถวเดียวกัน) */}
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  จังหวัด*
-                </label>
-                <select
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
-                  disabled={provLoading || !!provErr}
-                  {...register("province")}
-                >
-                  <option value="">
-                    {provLoading
-                      ? "กำลังโหลดจังหวัด..."
-                      : provErr ?? "กรุณาเลือกจังหวัด"}
-                  </option>
+                {/* จังหวัด + วันเกิด */}
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    จังหวัด*
+                  </label>
+                  <select
+                    className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
+                    disabled={provLoading || !!provErr}
+                    {...register("province")}
+                  >
+                    <option value="">
+                      {provLoading
+                        ? "กำลังโหลดจังหวัด..."
+                        : provErr ?? "กรุณาเลือกจังหวัด"}
+                    </option>
 
-                  {!provLoading &&
-                    !provErr &&
-                    Object.entries(provinceGroups)
-                      .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
-                      .map(([region, items]) => (
-                        <optgroup key={region} label={makeRegionLabel(region)}>
-                          {items.map((p) => (
-                            <option
-                              key={p.ProvinceNo}
-                              value={p.ProvinceNameThai}
-                            >
-                              {p.ProvinceNameThai}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                </select>
-                {errors.province && (
-                  <p className="mt-1 text-xs text-red-500">
-                    {errors.province.message}
-                  </p>
-                )}
+                    {!provLoading &&
+                      !provErr &&
+                      Object.entries(provinceGroups)
+                        .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
+                        .map(([region, items]) => (
+                          <optgroup key={region} label={makeRegionLabel(region)}>
+                            {items.map((p) => (
+                              <option
+                                key={p.ProvinceNo}
+                                value={p.ProvinceNameThai}
+                              >
+                                {p.ProvinceNameThai}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                  </select>
+                  {errors.province && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {errors.province.message}
+                    </p>
+                  )}
+                </div>
+
+                <InputWithLabel
+                  id="dob"
+                  label="วันเดือนปีเกิด*"
+                  type="date"
+                  error={errors.dob?.message}
+                  {...register("dob")}
+                />
               </div>
 
+              {/* ตำแหน่ง */}
               <InputWithLabel
-                id="dob"
-                label="วันเดือนปีเกิด*"
-                type="date"
-                error={errors.dob?.message}
-                {...register("dob")}
+                id="position"
+                label="ตำแหน่ง*"
+                placeholder="กรุณากรอกตำแหน่ง"
+                containerClassName="col-span-2"
+                error={errors.position?.message}
+                {...register("position")}
               />
-            </div>
 
-            {/* ตำแหน่ง */}
-            <InputWithLabel
-              id="position"
-              label="ตำแหน่ง*"
-              placeholder="กรุณากรอกตำแหน่ง"
-              containerClassName="col-span-2"
-              error={errors.position?.message}
-              {...register("position")}
-            />
+              {/* Email / Password */}
+              <InputWithLabel
+                id="email"
+                label="Email*"
+                placeholder="Email"
+                type="email"
+                error={errors.email?.message}
+                {...register("email")}
+              />
+              <InputWithLabel
+                id="password"
+                label="Password*"
+                placeholder="Password"
+                type="password"
+                error={errors.password?.message}
+                {...register("password")}
+              />
+              <InputWithLabel
+                id="confirmPassword"
+                label="ยืนยัน Password*"
+                placeholder="ยืนยัน Password"
+                type="password"
+                error={errors.confirmPassword?.message}
+                {...register("confirmPassword")}
+              />
 
-            {/* Email / Password */}
-            <InputWithLabel
-              id="email"
-              label="Email*"
-              placeholder="Email"
-              type="email"
-              error={errors.email?.message}
-              {...register("email")}
-            />
-            <InputWithLabel
-              id="password"
-              label="Password*"
-              placeholder="Password"
-              type="password"
-              error={errors.password?.message}
-              {...register("password")}
-            />
-            <InputWithLabel
-              id="confirmPassword"
-              label="ยืนยัน Password*"
-              placeholder="ยืนยัน Password"
-              type="password"
-              error={errors.confirmPassword?.message}
-              {...register("confirmPassword")}
-            />
-
-            <div className="pt-4 text-center">
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-pink-500 text-white hover:bg-pink-600 disabled:opacity-60"
-              >
-                {loading ? "กำลังดำเนินการ..." : "ลงทะเบียน"}
-              </Button>
-            </div>
-          </form>
+              <div className="pt-4 text-center">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#03a9f4] text-white hover:bg-[#028bd3] disabled:opacity-60"
+                >
+                  {loading ? "กำลังดำเนินการ..." : "ลงทะเบียน"}
+                </Button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -307,6 +320,6 @@ export default function RegisterPage() {
           </div>
         )}
       </ConfirmDialog>
-    </div>
+    </>
   );
 }

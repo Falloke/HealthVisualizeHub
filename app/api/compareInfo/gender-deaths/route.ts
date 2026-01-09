@@ -1,17 +1,12 @@
 // app/api/compareInfo/gender-deaths/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely/db";
 import { sql } from "kysely";
+import db from "@/lib/kysely3/db";
 
-type GenderCounts = {
-  male: number;
-  female: number;
-  unknown: number;
-};
+export const runtime = "nodejs";
 
-type GenderSummary = {
-  province: string;
-} & GenderCounts;
+type GenderCounts = { male: number; female: number; unknown: number };
+type GenderSummary = { province: string } & GenderCounts;
 
 type APIResp = {
   ok: boolean;
@@ -20,96 +15,76 @@ type APIResp = {
   error?: string;
 };
 
+function parseDateOrThrow(v: string, name: string): Date {
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
+  return d;
+}
+
 async function queryGenderDeaths(opts: {
   start_date: string;
   end_date: string;
-  province: string;
+  provinceNameTh: string;
 }): Promise<GenderCounts> {
-  const { start_date, end_date, province } = opts;
+  const start = parseDateOrThrow(opts.start_date, "start_date");
+  const end = parseDateOrThrow(opts.end_date, "end_date");
 
-  const rows = await db
-    .selectFrom("d01_influenza")
-    .select([
-      "gender",
-      sql<number>`COUNT(death_date_parsed)`.as("deaths"),
+  const g = sql`LOWER(TRIM(COALESCE(ic.gender, '')))`;
+
+  const row = await db
+    .selectFrom("influenza_cases as ic")
+    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    .select(() => [
+      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('m','male','ชาย'))`.as("male"),
+      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('f','female','หญิง'))`.as("female"),
+      sql<number>`COUNT(*) FILTER (
+        WHERE ${g} NOT IN ('m','male','ชาย','f','female','หญิง')
+      )`.as("unknown"),
     ])
-    .where("death_date_parsed", ">=", new Date(start_date))
-    .where("death_date_parsed", "<=", new Date(end_date))
-    .where("province", "=", province)
-    .groupBy("gender")
-    .execute();
+    .where("p.province_name_th", "=", opts.provinceNameTh)
+    .where("ic.death_date_parsed", "is not", null)
+    .where("ic.death_date_parsed", ">=", start)
+    .where("ic.death_date_parsed", "<=", end)
+    .executeTakeFirst();
 
-  let male = 0;
-  let female = 0;
-  let unknown = 0;
-
-  for (const r of rows as Array<{ gender: string | null; deaths: number }>) {
-    const g = (r.gender ?? "").trim();
-    const v = Number(r.deaths ?? 0);
-
-    if (g === "M" || g === "ชาย") {
-      male = v;
-    } else if (g === "F" || g === "หญิง") {
-      female = v;
-    } else {
-      unknown += v;
-    }
-  }
-
-  return { male, female, unknown };
+  return {
+    male: Number(row?.male ?? 0),
+    female: Number(row?.female ?? 0),
+    unknown: Number(row?.unknown ?? 0),
+  };
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const params = req.nextUrl.searchParams;
+    const sp = req.nextUrl.searchParams;
 
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-12-31";
-    const mainProvince = params.get("mainProvince");
-    const compareProvince = params.get("compareProvince");
+    const start_date = sp.get("start_date") ?? "2024-01-01";
+    const end_date = sp.get("end_date") ?? "2024-12-31";
+    const mainProvince = sp.get("mainProvince") ?? "";
+    const compareProvince = sp.get("compareProvince") ?? "";
 
-    if (!mainProvince && !compareProvince) {
+    if (!mainProvince || !compareProvince) {
       return NextResponse.json<APIResp>(
-        {
-          ok: false,
-          error: "ต้องระบุ mainProvince หรือ compareProvince อย่างน้อย 1 จังหวัด",
-        },
+        { ok: false, error: "ต้องระบุ mainProvince และ compareProvince ให้ครบ" },
         { status: 400 }
       );
     }
 
-    const result: APIResp = { ok: true };
+    const [mainCounts, compareCounts] = await Promise.all([
+      queryGenderDeaths({ start_date, end_date, provinceNameTh: mainProvince }),
+      queryGenderDeaths({ start_date, end_date, provinceNameTh: compareProvince }),
+    ]);
 
-    if (mainProvince) {
-      const counts = await queryGenderDeaths({
-        start_date,
-        end_date,
-        province: mainProvince,
-      });
-      result.main = {
-        province: mainProvince,
-        ...counts,
-      };
-    }
-
-    if (compareProvince) {
-      const counts = await queryGenderDeaths({
-        start_date,
-        end_date,
-        province: compareProvince,
-      });
-      result.compare = {
-        province: compareProvince,
-        ...counts,
-      };
-    }
-
-    return NextResponse.json(result);
-  } catch (err) {
-    console.error("❌ API ERROR (compareInfo/gender-deaths):", err);
     return NextResponse.json<APIResp>(
-      { ok: false, error: "Internal Server Error" },
-      { status: 500 }
+      {
+        ok: true,
+        main: { province: mainProvince, ...mainCounts },
+        compare: { province: compareProvince, ...compareCounts },
+      },
+      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
     );
+  } catch (e: any) {
+    console.error("❌ API ERROR (compareInfo/gender-deaths):", e);
+    return NextResponse.json<APIResp>({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
   }
 }

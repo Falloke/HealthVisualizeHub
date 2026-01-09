@@ -39,9 +39,22 @@ function normalizeRegions(rows: RegionData[]): RegionData[] {
 }
 
 const fmtCompact = (n: number) =>
-  new Intl.NumberFormat("th", { notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+  new Intl.NumberFormat("th", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n || 0);
 
-export default function GraphByProvince({ compact = false }: { compact?: boolean }) {
+function tooltipNameTH(name: unknown) {
+  if (name === "patients") return "ผู้ป่วยสะสม";
+  if (name === "deaths") return "ผู้เสียชีวิตสะสม";
+  return String(name ?? "");
+}
+
+export default function GraphByProvince({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   const { province, start_date, end_date } = useDashboardStore();
   const [raw, setRaw] = useState<RegionData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,36 +82,47 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
         if (!aborted) setLoading(false);
       }
     })();
-    return () => { aborted = true; };
+    return () => {
+      aborted = true;
+    };
   }, [province, start_date, end_date]);
 
   const data = useMemo(() => normalizeRegions(raw), [raw]);
 
-  const maxPatients = useMemo(() => Math.max(0, ...data.map((d) => d.patients)), [data]);
-  const maxDeaths  = useMemo(() => Math.max(0, ...data.map((d) => d.deaths)),  [data]);
+  const maxPatients = useMemo(
+    () => Math.max(0, ...data.map((d) => d.patients)),
+    [data]
+  );
+  const maxDeaths = useMemo(
+    () => Math.max(0, ...data.map((d) => d.deaths)),
+    [data]
+  );
 
   // buffer ขวาสำหรับตัวเลขด้านนอกแท่ง
   const rightPatients = maxPatients > 0 ? Math.ceil(maxPatients * 1.08) : 1;
-  const rightDeaths   = maxDeaths  > 0 ? maxDeaths + 1.2 : 1;
+  const rightDeaths = maxDeaths > 0 ? maxDeaths + 1.2 : 1;
 
   // สไตล์กระชับ
-  const PAD        = compact ? "p-2.5 md:p-3" : "p-3.5 md:p-4";
-  const TITLE      = compact ? "text-sm md:text-base" : "text-base";
-  const H_PAT      = compact ? 190 : 260;
-  const H_DEA      = compact ? 170 : 240;
-  const BAR_GAP    = compact ? 10 : 16;
-  const BAR_SIZE   = compact ? 14 : 18;
-  const LABEL_FS   = compact ? 11 : 12;
-  const TICK_FS    = compact ? 11 : 12;
+  const PAD = compact ? "p-2.5 md:p-3" : "p-3.5 md:p-4";
+  const TITLE = compact ? "text-sm md:text-base" : "text-base";
+  const H_PAT = compact ? 190 : 260;
+  const H_DEA = compact ? 170 : 240;
+  const BAR_GAP = compact ? 10 : 16;
+  const BAR_SIZE = compact ? 14 : 18;
+  const LABEL_FS = compact ? 11 : 12;
+  const TICK_FS = compact ? 11 : 12;
 
   // ลดซ้าย, เผื่อขวาเพิ่มให้ตัวเลข
-  const M_LEFT   = 2;
-  const M_RIGHT  = 30;   // <- เพิ่มจากเดิมเพื่อให้เลขพ้นปลายแท่งชัวร์
+  const M_LEFT = 2;
+  const M_RIGHT = 30;
   const M_BOTTOM = 14;
-  const M_TOP    = 2;
+  const M_TOP = 2;
 
   // ความกว้างแกน Y แบบอัตโนมัติ
-  const longestLabelLen = useMemo(() => Math.max(0, ...data.map(d => d.region.length)), [data]);
+  const longestLabelLen = useMemo(
+    () => Math.max(0, ...data.map((d) => d.region.length)),
+    [data]
+  );
   const Y_AXIS_WIDTH = Math.min(160, Math.max(138, 8 + longestLabelLen * 9.2));
 
   /** Label ด้านนอกปลายแท่ง “... ราย” */
@@ -112,8 +136,8 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
     if (value === undefined || value === null) return null;
     const num = typeof value === "number" ? value : Number(value);
     const text = `${num.toLocaleString()} ราย`;
-    const cx = x + width + 6;            // ปลายแท่ง + ระยะห่าง
-    const cy = y + height / 2;           // กึ่งกลางแท่ง
+    const cx = x + width + 6;
+    const cy = y + height / 2;
     return (
       <text
         x={cx}
@@ -129,7 +153,12 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
   };
 
   const ChartCard = ({
-    title, dataKey, color, height, domainRight, useCompactTick = false,
+    title,
+    dataKey,
+    color,
+    height,
+    domainRight,
+    useCompactTick = false,
   }: {
     title: string;
     dataKey: keyof RegionData;
@@ -152,7 +181,11 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
             <XAxis
               type="number"
               domain={[0, domainRight]}
-              tickFormatter={(v) => (useCompactTick ? fmtCompact(Number(v)) : Number(v).toLocaleString())}
+              tickFormatter={(v) =>
+                useCompactTick
+                  ? fmtCompact(Number(v))
+                  : Number(v).toLocaleString()
+              }
               tick={{ fontSize: TICK_FS }}
               tickMargin={2}
             />
@@ -164,13 +197,18 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
               tickMargin={0}
               tick={{ fontSize: TICK_FS }}
             />
+
+            {/* ✅ Tooltip แสดงชื่อภาษาไทยแทน patients/deaths */}
             <Tooltip
-              formatter={(v: number) => Number(v).toLocaleString()}
+              formatter={(value: any, name: any) => {
+                const n = Number(value ?? 0);
+                return [n.toLocaleString(), tooltipNameTH(name)] as [string, string];
+              }}
               labelStyle={{ fontSize: 12 }}
               itemStyle={{ fontSize: 12 }}
             />
+
             <Bar dataKey={dataKey} fill={color} radius={[4, 4, 4, 4]}>
-              {/* วางเลขที่ปลายแท่งด้านนอก + คำว่า “ราย” */}
               <LabelList content={<LabelOutside />} />
             </Bar>
           </BarChart>
@@ -182,11 +220,15 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
   return (
     <div className="space-y-3">
       {loading ? (
-        <div className="rounded-lg border bg-white p-3 text-gray-600">⏳ กำลังโหลดข้อมูล...</div>
+        <div className="rounded-lg border bg-white p-3 text-gray-600">
+          ⏳ กำลังโหลดข้อมูล...
+        </div>
       ) : err ? (
         <div className="rounded-lg border bg-white p-3 text-red-600">{err}</div>
       ) : data.length === 0 ? (
-        <div className="rounded-lg border bg-white p-3 text-gray-600">ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก</div>
+        <div className="rounded-lg border bg-white p-3 text-gray-600">
+          ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก
+        </div>
       ) : (
         <>
           <ChartCard

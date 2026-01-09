@@ -1,3 +1,4 @@
+// app/components/footer/SiteFooter.tsx
 "use client";
 
 import Link from "next/link";
@@ -14,11 +15,10 @@ export default function SiteFooter() {
   const pathname = usePathname();
 
   return (
-    // footer ตัวจริงของหน้า พร้อม id/data-app ให้ตัวคำนวณไปอ้างอิง
     <footer
       id="app-footer"
       data-app="footer"
-      className="border-t border-pink-200 bg-pink-200 text-gray-800"
+      className="border-t border-sky-200 bg-sky-300 text-gray-900"
       role="contentinfo"
     >
       <div className="mx-auto max-w-[1320px] px-4 py-4 sm:py-5">
@@ -26,18 +26,18 @@ export default function SiteFooter() {
           {/* ซ้าย: โลโก้ + คำอธิบายสั้น */}
           <div className="max-w-xl">
             <Link href="/" aria-label="กลับหน้าแรก" className="inline-block">
-              <h2 className="text-2xl font-extrabold tracking-tight text-pink-700 hover:opacity-90">
+              <h2 className="text-2xl font-extrabold tracking-tight text-sky-800 hover:opacity-90">
                 HealthRiskHub
               </h2>
             </Link>
-            <p className="mt-1 text-xs leading-5 text-gray-800">
+            <p className="mt-1 text-xs leading-5 text-gray-900">
               ระบบเว็บแอปพลิเคชันติดตามแบบเชิงรอบ วิเคราะห์ และนำเสนอข้อมูลโรคระบาดในระดับจังหวัดของประเทศไทย
             </p>
           </div>
 
           {/* ขวา: ลิขสิทธิ์ + เมนู */}
           <div className="flex flex-col items-start sm:items-end">
-            <p className="text-xs text-gray-800">
+            <p className="text-xs text-gray-900">
               Copyright © {new Date().getFullYear()} Create By Pimonpan D. Tossapon T.
             </p>
 
@@ -47,7 +47,9 @@ export default function SiteFooter() {
             >
               {NAV_LINKS.map((item) => {
                 const active =
-                  item.href === "/" ? pathname === "/" : pathname?.startsWith(item.href);
+                  item.href === "/"
+                    ? pathname === "/"
+                    : pathname?.startsWith(item.href);
 
                 return (
                   <Link
@@ -56,7 +58,7 @@ export default function SiteFooter() {
                     aria-current={active ? "page" : undefined}
                     className={`transition hover:opacity-90 ${
                       active
-                        ? "font-semibold text-pink-900 underline underline-offset-4"
+                        ? "font-semibold text-sky-900 underline underline-offset-4"
                         : "text-gray-900"
                     }`}
                   >

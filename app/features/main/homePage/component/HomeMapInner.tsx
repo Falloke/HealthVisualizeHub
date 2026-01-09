@@ -1,4 +1,3 @@
-// E:\HealtRiskHub\app\features\main\homePage\component\HomeMapInner.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -69,7 +68,9 @@ export default function HomeMapInner({ className = "" }: { className?: string })
         const res = await fetch(`/data/thailand-province-simple.json?v=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setGeoData(await res.json());
-      } catch (e) { console.error("load geojson failed:", e); }
+      } catch (e) {
+        console.error("load geojson failed:", e);
+      }
     })();
   }, []);
 
@@ -147,6 +148,7 @@ export default function HomeMapInner({ className = "" }: { className?: string })
   useEffect(() => {
     if (!ready || !mapRef.current) return;
 
+    // reset map เดิม
     if (mapInstanceRef.current) {
       mapInstanceRef.current.remove();
       mapInstanceRef.current = null;
@@ -220,14 +222,46 @@ export default function HomeMapInner({ className = "" }: { className?: string })
     geoJsonRef.current = geoJsonLayer;
     mapInstanceRef.current = map;
 
-    // ทำให้ map รีขนาดตามกรอบ
+    // ✅ ทำให้ map รีขนาดตามกรอบ (กัน error ตอน unmount/เปลี่ยนหน้า)
+    let alive = true;
+    let rafId: number | null = null;
+    let tId: number | null = null;
+
+    const safeInvalidate = () => {
+      const m = mapInstanceRef.current;
+      if (!alive || !m) return;
+
+      const el = m.getContainer?.();
+      if (!el || !(el as any).isConnected) return;
+
+      try {
+        m.invalidateSize({ animate: false });
+      } catch (e) {
+        // กัน crash จาก Leaflet internals ตอน DOM หาย
+        // console.warn("invalidateSize skipped:", e);
+      }
+    };
+
     const ro = new ResizeObserver(() => {
-      setTimeout(() => map.invalidateSize(), 0);
+      // debounce ด้วย rAF + setTimeout 0 (ให้ layout settle ก่อน)
+      if (rafId != null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (tId != null) window.clearTimeout(tId);
+        tId = window.setTimeout(safeInvalidate, 0);
+      });
     });
+
     if (wrapperRef.current) ro.observe(wrapperRef.current);
 
+    // invalidate 1 ครั้งหลัง mount (ช่วยตอนเข้า page แล้วแผนที่เบี้ยว)
+    tId = window.setTimeout(safeInvalidate, 0);
+
     return () => {
+      alive = false;
       ro.disconnect();
+      if (rafId != null) cancelAnimationFrame(rafId);
+      if (tId != null) window.clearTimeout(tId);
+
       map.remove();
       mapInstanceRef.current = null;
       activeLayerRef.current = null;
@@ -240,7 +274,7 @@ export default function HomeMapInner({ className = "" }: { className?: string })
       {/* แผนที่กินความสูงทั้งหมดจากภายนอก */}
       <div ref={mapRef} className="h-full w-full rounded-md border bg-neutral-50" />
 
-      {/* Hover info (ยก z-index ให้สูงกว่าชั้น Leaflet ทุกชั้น) */}
+      {/* Hover info */}
       {hoveredProvince && (
         <div className="pointer-events-none absolute top-3 right-3 z-[1000] w-72 rounded-md border bg-white/95 p-3 text-sm shadow">
           <h3 className="text-base font-semibold">{hoveredProvince.name}</h3>
@@ -266,7 +300,7 @@ export default function HomeMapInner({ className = "" }: { className?: string })
         </div>
       )}
 
-      {/* Legend (ยก z-index เช่นกัน) */}
+      {/* Legend */}
       <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] space-y-1 rounded-md border bg-white/90 p-2 text-xs shadow">
         <div className="font-medium">ระดับความเสี่ยง</div>
         <div className="flex items-center gap-2"><span className={`h-3 w-3 rounded ${RISK_META["สูงมาก"].bg}`} /><span>สูงมาก</span></div>

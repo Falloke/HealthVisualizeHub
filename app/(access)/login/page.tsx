@@ -22,64 +22,83 @@ export default function LoginPage() {
     const password = String(form.get("password") || "");
 
     const res = await signIn("credentials", {
-      redirect: false,          // เราจะนำทางเอง
+      redirect: false,
       email,
       password,
-      callbackUrl: "/",         // เผื่อใช้ res.url
+      callbackUrl: "/",
     });
 
     setLoading(false);
 
     if (!res || res.error) {
-      setError("Invalid username or password");
+      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
       return;
     }
 
-    // สำเร็จ → นำทางไปหน้าหลัก
     router.replace(res.url ?? "/");
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
-      <div className="flex w-full max-w-5xl overflow-hidden rounded-xl bg-white">
-        <div className="flex w-1/2 items-center justify-center bg-pink-100">
-          <Image src="/images/login.png" alt="Login" width={400} height={400} />
+    <div className="flex w-full items-center justify-center bg-white px-4 py-12">
+      <div className="flex w-full max-w-6xl overflow-hidden rounded-2xl bg-white
+                    shadow-[0_18px_60px_rgba(7,162,255,0.22)]
+                    ring-1 ring-[#07A2FF]/10">
+        {/* ฝั่งซ้ายรูปภาพ (พื้นหลังฟ้า) */}
+        <div className="hidden w-1/2 items-center justify-center bg-[#07A2FF] p-10 md:flex">
+          <Image
+            src="/images/login.png"
+            alt="Login illustration"
+            width={420}
+            height={420}
+            className="h-auto w-full max-w-[420px]"
+            priority
+          />
         </div>
 
-        <div className="w-1/2 p-10">
-          <h2 className="mb-8 text-center text-3xl font-bold text-pink-700">
+        {/* ฝั่งขวา form */}
+        <div className="w-full p-8 md:w-1/2 md:p-10">
+          <h2 className="mb-2 text-center text-3xl font-bold text-[#0077CC]">
             เข้าสู่ระบบ
           </h2>
+          <p className="mb-8 text-center text-sm text-gray-600">
+            กรุณากรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งานระบบ HealthRiskHub
+          </p>
 
-          <form className="space-y-6" onSubmit={onLogin}>
+          <form className="space-y-5" onSubmit={onLogin}>
             <input
-              className="border-input focus-visible:ring-primary-pink flex h-10 w-full rounded-md border bg-white px-3 py-2 text-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              className="flex h-11 w-full rounded-full border border-[#CFE8FF] bg-[#F2F7FF] px-4 text-sm placeholder:text-neutral-400 focus:border-[#07A2FF] focus:outline-none focus:ring-2 focus:ring-[#07A2FF]/40"
               type="email"
-              placeholder="Email"
+              placeholder="Adminhhhbbb@mail.com"
               name="email"
               required
               autoComplete="email"
             />
             <input
-              className="border-input focus-visible:ring-primary-pink flex h-10 w-full rounded-md border bg-white px-3 py-2 text-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              className="flex h-11 w-full rounded-full border border-[#CFE8FF] bg-[#F2F7FF] px-4 text-sm placeholder:text-neutral-400 focus:border-[#07A2FF] focus:outline-none focus:ring-2 focus:ring-[#07A2FF]/40"
               type="password"
               name="password"
-              placeholder="Password"
+              placeholder="กรอกรหัสผ่าน"
               required
               autoComplete="current-password"
             />
 
-            {error && <div className="text-sm text-red-600">{error}</div>}
+            {error && (
+              <div className="text-sm text-red-600">{error}</div>
+            )}
 
-            <div className="text-center">
+            <div className="pt-2">
               <Button
-                className="w-full bg-pink-500 text-white hover:bg-pink-600"
+                className="h-11 w-full rounded-full bg-[#07A2FF] text-sm font-semibold text-white hover:bg-[#0088E6]"
                 disabled={loading}
               >
                 {loading ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
               </Button>
             </div>
           </form>
+
+          <p className="mt-6 text-center text-xs text-gray-500">
+            HealthRiskHub — ระบบวิเคราะห์สถานการณ์โรคระดับจังหวัด
+          </p>
         </div>
       </div>
     </div>

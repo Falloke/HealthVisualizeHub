@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely/db";
+import db from "@/lib/kysely3/db";
 import { sql } from "kysely";
 import provinces from "@/public/data/Thailand-ProvinceName.json";
 
@@ -7,24 +7,34 @@ type ProvinceRegion = {
   ProvinceNameThai: string;
   Region_VaccineRollout_MOPH: string;
 };
+
 export const runtime = "nodejs";
+
+function parseDateOrFallback(input: string | null, fallback: string) {
+  const raw = (input && input.trim()) || fallback;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date(fallback);
+  return d;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-09-09";
+    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
+    const endDate = parseDateOrFallback(params.get("end_date"), "2024-09-09");
 
-    // 🩺 Query: ผู้ป่วย + ผู้เสียชีวิต grouped by province
+    // 🩺 Query: ผู้ป่วย + ผู้เสียชีวิต grouped by province_id
     const rows = await db
-      .selectFrom("d01_influenza")
+      .selectFrom("influenza_cases as ic")
+      .innerJoin("provinces as p", "p.province_id", "ic.province_id")
       .select([
-        "province",
+        "p.province_name_th as province",
         sql<number>`COUNT(*)`.as("patients"),
-        sql<number>`COUNT(death_date_parsed)`.as("deaths"),
+        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
       ])
-      .where("onset_date_parsed", ">=", new Date(start_date))
-      .where("onset_date_parsed", "<=", new Date(end_date))
-      .groupBy("province")
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .groupBy("p.province_name_th")
       .execute();
 
     // 🗺️ Mapping จังหวัด → ภูมิภาค
@@ -35,16 +45,15 @@ export async function GET(request: NextRequest) {
 
     // 🔄 Group by region
     const regionData: Record<string, { patients: number; deaths: number }> = {};
-    rows.forEach((r) => {
-      const region = provinceRegionMap[r.province] || "ไม่ทราบภูมิภาค";
-      if (!regionData[region]) {
-        regionData[region] = { patients: 0, deaths: 0 };
-      }
-      regionData[region].patients += Number(r.patients);
-      regionData[region].deaths += Number(r.deaths);
-    });
+    for (const r of rows) {
+      const provName = String(r.province || "").trim();
+      const region = provinceRegionMap[provName] || "ไม่ทราบภูมิภาค";
 
-    // 📊 แปลงเป็น array
+      if (!regionData[region]) regionData[region] = { patients: 0, deaths: 0 };
+      regionData[region].patients += Number(r.patients ?? 0);
+      regionData[region].deaths += Number(r.deaths ?? 0);
+    }
+
     const result = Object.keys(regionData).map((region) => ({
       region,
       patients: regionData[region].patients,

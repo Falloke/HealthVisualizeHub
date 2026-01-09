@@ -1,94 +1,67 @@
 // app/api/compareInfo/province-deaths/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely/db";
 import { sql } from "kysely";
+import db from "@/lib/kysely3/db";
 
-type ProvinceDeaths = {
-  province: string;
-  deaths: number;
-};
+export const runtime = "nodejs";
 
-type APIResp = {
-  ok: boolean;
-  main?: ProvinceDeaths;
-  compare?: ProvinceDeaths;
-  error?: string;
-};
+type ProvinceDeaths = { province: string; deaths: number };
+type APIResp = { ok: boolean; main?: ProvinceDeaths; compare?: ProvinceDeaths; error?: string };
 
-// ดึงจำนวน "ผู้เสียชีวิตสะสม" ของจังหวัดเดียว (ตามช่วงวันที่ที่กำหนด)
+function parseDateOrThrow(v: string, name: string): Date {
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
+  return d;
+}
+
 async function queryProvinceDeaths(opts: {
   start_date: string;
   end_date: string;
-  province: string;
+  provinceNameTh: string;
 }): Promise<ProvinceDeaths> {
-  const { start_date, end_date, province } = opts;
+  const start = parseDateOrThrow(opts.start_date, "start_date");
+  const end = parseDateOrThrow(opts.end_date, "end_date");
 
-  const rows = await db
-    .selectFrom("d01_influenza")
-    .select([
-      "province",
-      sql<number>`COUNT(death_date_parsed)`.as("deaths"),
-    ])
-    .where("death_date_parsed", ">=", new Date(start_date))
-    .where("death_date_parsed", "<=", new Date(end_date))
-    .where("province", "=", province)
-    .groupBy("province")
-    .execute();
+  const row = await db
+    .selectFrom("influenza_cases as ic")
+    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    .select(sql<number>`COUNT(*)`.as("deaths"))
+    .where("p.province_name_th", "=", opts.provinceNameTh)
+    .where("ic.death_date_parsed", "is not", null)
+    .where("ic.death_date_parsed", ">=", start)
+    .where("ic.death_date_parsed", "<=", end)
+    .executeTakeFirst();
 
-  const first = rows[0] as { province?: string | null; deaths?: number } | undefined;
-
-  return {
-    province,
-    deaths: Number(first?.deaths ?? 0),
-  };
+  return { province: opts.provinceNameTh, deaths: Number(row?.deaths ?? 0) };
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const params = req.nextUrl.searchParams;
+    const sp = req.nextUrl.searchParams;
 
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-12-31";
-    const mainProvince = params.get("mainProvince");
-    const compareProvince = params.get("compareProvince");
+    const start_date = sp.get("start_date") ?? "2024-01-01";
+    const end_date = sp.get("end_date") ?? "2024-12-31";
+    const mainProvince = sp.get("mainProvince") ?? "";
+    const compareProvince = sp.get("compareProvince") ?? "";
 
     if (!mainProvince && !compareProvince) {
       return NextResponse.json<APIResp>(
-        {
-          ok: false,
-          error:
-            "ต้องระบุ mainProvince หรือ compareProvince อย่างน้อย 1 จังหวัด",
-        },
+        { ok: false, error: "ต้องระบุ mainProvince หรือ compareProvince อย่างน้อย 1 จังหวัด" },
         { status: 400 }
       );
     }
 
-    const result: APIResp = { ok: true };
+    const [main, compare] = await Promise.all([
+      mainProvince ? queryProvinceDeaths({ start_date, end_date, provinceNameTh: mainProvince }) : Promise.resolve(undefined),
+      compareProvince ? queryProvinceDeaths({ start_date, end_date, provinceNameTh: compareProvince }) : Promise.resolve(undefined),
+    ]);
 
-    if (mainProvince) {
-      const main = await queryProvinceDeaths({
-        start_date,
-        end_date,
-        province: mainProvince,
-      });
-      result.main = main;
-    }
-
-    if (compareProvince) {
-      const compare = await queryProvinceDeaths({
-        start_date,
-        end_date,
-        province: compareProvince,
-      });
-      result.compare = compare;
-    }
-
-    return NextResponse.json(result);
-  } catch (err) {
-    console.error("❌ API ERROR (compareInfo/province-deaths):", err);
     return NextResponse.json<APIResp>(
-      { ok: false, error: "Internal Server Error" },
-      { status: 500 }
+      { ok: true, ...(main ? { main } : {}), ...(compare ? { compare } : {}) },
+      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
     );
+  } catch (e: any) {
+    console.error("❌ API ERROR (compareInfo/province-deaths):", e);
+    return NextResponse.json<APIResp>({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
   }
 }

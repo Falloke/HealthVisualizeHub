@@ -60,9 +60,9 @@ export default function FooterDashboard({ className = "" }: Props) {
   if (loading) {
     return (
       <footer
-        className={`border-t pt-3 mt-6 text-sm text-gray-600 ${className}`}
+        className={`mt-6 border-t border-sky-200 pt-3 text-sm text-slate-600 ${className}`}
       >
-        <p className="text-gray-500">กำลังโหลดแหล่งที่มาของข้อมูล…</p>
+        <p className="text-slate-500">กำลังโหลดแหล่งที่มาของข้อมูล…</p>
       </footer>
     );
   }
@@ -70,7 +70,7 @@ export default function FooterDashboard({ className = "" }: Props) {
   if (err) {
     return (
       <footer
-        className={`border-t pt-3 mt-6 text-sm text-gray-600 ${className}`}
+        className={`mt-6 border-t border-sky-200 pt-3 text-sm text-slate-600 ${className}`}
       >
         <p className="text-red-600">{err}</p>
       </footer>
@@ -81,11 +81,10 @@ export default function FooterDashboard({ className = "" }: Props) {
 
   return (
     <footer
-      className={`border-t pt-3 mt-6 text-sm text-gray-600 ${className}`}
+      className={`mt-6 border-t border-sky-200 pt-3 text-sm text-slate-600 ${className}`}
     >
-      <p className="mb-2 font-semibold">แหล่งที่มาของข้อมูล :</p>
+      <p className="mb-2 font-semibold text-sky-800">แหล่งที่มาของข้อมูล :</p>
 
-      {/* มือถือ 1 คอลัมน์, จอ >= md เป็น 2 คอลัมน์ */}
       <ul className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2">
         {items.map((s) => {
           const logoSrc = normalizeUrl(s.logo_url) ?? FALLBACK_LOGO;
@@ -97,7 +96,7 @@ export default function FooterDashboard({ className = "" }: Props) {
               <img
                 src={logoSrc}
                 alt={s.name ?? s.agency ?? "logo"}
-                className="mt-0.5 h-6 w-6 shrink-0 rounded object-contain"
+                className="mt-0.5 h-6 w-6 shrink-0 rounded bg-white/60 object-contain"
                 loading="lazy"
                 decoding="async"
                 onError={(ev) => {
@@ -108,17 +107,17 @@ export default function FooterDashboard({ className = "" }: Props) {
                 }}
               />
               <div className="min-w-0">
-                <div className="font-medium text-gray-800 break-words">
+                <div className="break-words font-medium text-slate-800">
                   {s.name ?? s.slug ?? "ไม่ระบุชื่อ"}
                 </div>
                 {s.agency && (
-                  <div className="text-xs text-gray-500 break-words">
+                  <div className="break-words text-xs text-slate-500">
                     {s.agency}
                   </div>
                 )}
                 {href && (
                   <a
-                    className="text-blue-600 underline break-words"
+                    className="break-words text-xs text-sky-700 underline underline-offset-2 hover:text-sky-900"
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -127,7 +126,7 @@ export default function FooterDashboard({ className = "" }: Props) {
                   </a>
                 )}
                 {s.description && (
-                  <div className="mt-0.5 text-xs text-gray-500 break-words">
+                  <div className="mt-0.5 break-words text-xs text-slate-500">
                     {s.description}
                   </div>
                 )}

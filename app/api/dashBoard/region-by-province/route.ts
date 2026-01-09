@@ -1,103 +1,132 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely/db";
+import db from "@/lib/kysely3/db";
 import { sql } from "kysely";
-import provinces from "@/public/data/Thailand-ProvinceName.json";
 
-type ProvinceRegion = {
-  ProvinceNameThai: string;
-  Region_VaccineRollout_MOPH: string;
-};
+export const runtime = "nodejs";
+
+function parseDateOrFallback(input: string | null, fallback: string) {
+  const raw = (input && input.trim()) || fallback;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date(fallback);
+  return d;
+}
+
+async function resolveProvince(provinceParam: string) {
+  const p = provinceParam.trim();
+
+  if (/^\d+$/.test(p)) {
+    const row = await db
+      .selectFrom("provinces")
+      .select(["province_id", "province_name_th", "region_id"])
+      .where("province_id", "=", Number(p))
+      .executeTakeFirst();
+    return row ?? null;
+  }
+
+  const row = await db
+    .selectFrom("provinces")
+    .select(["province_id", "province_name_th", "region_id"])
+    .where("province_name_th", "=", p)
+    .executeTakeFirst();
+
+  return row ?? null;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-12-31";
-    const selectedProvince = (params.get("province") || "").trim();
+    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
+    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
+    const selectedProvinceParam = (params.get("province") || "").trim();
 
-    if (!selectedProvince) {
+    if (!selectedProvinceParam) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const provinceList = provinces as ProvinceRegion[];
-    const region = provinceList.find(
-      (p) => p.ProvinceNameThai === selectedProvince
-    )?.Region_VaccineRollout_MOPH;
-
-    if (!region) {
+    const selectedProv = await resolveProvince(selectedProvinceParam);
+    if (!selectedProv) {
       return NextResponse.json(
-        { error: "ไม่พบภูมิภาคของจังหวัดนี้" },
+        { error: `ไม่พบจังหวัด: ${selectedProvinceParam}` },
         { status: 404 }
       );
     }
 
-    const provincesInRegion = provinceList
-      .filter((p) => p.Region_VaccineRollout_MOPH === region)
-      .map((p) => p.ProvinceNameThai);
+    const regionId = selectedProv.region_id;
+    if (regionId == null) {
+      return NextResponse.json(
+        { error: "จังหวัดนี้ไม่มี region_id" },
+        { status: 404 }
+      );
+    }
 
-    // ดึงยอดผู้ป่วย/เสียชีวิตของทุกจังหวัดในภูมิภาคนั้น
+    // หาจังหวัดทั้งหมดในภาคเดียวกัน
+    const provincesInRegion = await db
+      .selectFrom("provinces")
+      .select(["province_id", "province_name_th"])
+      .where("region_id", "=", regionId)
+      .execute();
+
+    const provinceIds = provincesInRegion.map((x) => x.province_id);
+
+    // ดึงยอดผู้ป่วย/เสียชีวิตของทุกจังหวัดในภาคนั้น
     const rows = await db
-      .selectFrom("d01_influenza")
+      .selectFrom("influenza_cases as ic")
+      .innerJoin("provinces as p", "p.province_id", "ic.province_id")
       .select([
-        "province",
+        "p.province_name_th as province",
         sql<number>`COUNT(*)`.as("patients"),
-        sql<number>`COUNT(death_date_parsed)`.as("deaths"),
+        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
       ])
-      .where("onset_date_parsed", ">=", new Date(start_date))
-      .where("onset_date_parsed", "<=", new Date(end_date))
-      .where("province", "in", provincesInRegion)
-      .groupBy("province")
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province_id", "in", provinceIds)
+      .groupBy("p.province_name_th")
       .execute();
 
     const normalized = rows.map((r) => ({
-      province: r.province,
+      province: String(r.province),
       patients: Number(r.patients ?? 0),
       deaths: Number(r.deaths ?? 0),
-      region,
+      regionId,
     }));
 
-    // ข้อมูลของจังหวัดที่เลือก (ถ้าไม่มีใน rows ให้เป็นศูนย์)
     const selectedRow =
-      normalized.find((x) => x.province === selectedProvince) ??
-      { province: selectedProvince, patients: 0, deaths: 0, region };
+      normalized.find((x) => x.province === selectedProv.province_name_th) ?? {
+        province: selectedProv.province_name_th,
+        patients: 0,
+        deaths: 0,
+        regionId,
+      };
 
     // === คำนวณอันดับของจังหวัดที่เลือก (ตามจำนวนผู้ป่วย) ===
-    const byPatientsDesc = [...normalized].sort(
-      (a, b) => b.patients - a.patients
-    );
+    const byPatientsDesc = [...normalized].sort((a, b) => b.patients - a.patients);
     const selectedIdx = byPatientsDesc.findIndex(
-      (x) => x.province === selectedProvince
+      (x) => x.province === selectedProv.province_name_th
     );
     const selectedPatientsRank = selectedIdx >= 0 ? selectedIdx + 1 : undefined;
 
-    // Top 5 ของภาค (ไม่รวมจังหวัดที่เลือก เพื่อให้แท่ง Top 1–5 คงที่)
-    const others = normalized.filter((x) => x.province !== selectedProvince);
-    const topPatients = [...others]
-      .sort((a, b) => b.patients - a.patients)
-      .slice(0, 5);
-    const topDeaths = [...others]
-      .sort((a, b) => b.deaths - a.deaths)
-      .slice(0, 5);
+    // Top 5 ของภาค (ไม่รวมจังหวัดที่เลือก)
+    const others = normalized.filter((x) => x.province !== selectedProv.province_name_th);
 
-    // ถ้า “จังหวัดที่เลือก” อยู่นอก Top-5 ให้แนบ object นี้ไปด้วย
-    // front-end จะใช้แสดงเป็นแท่งที่ 6 พร้อมบอกรายละเอียดอันดับ
+    const topPatients = [...others].sort((a, b) => b.patients - a.patients).slice(0, 5);
+    const topDeaths = [...others].sort((a, b) => b.deaths - a.deaths).slice(0, 5);
+
     const selectedProvinceExtra =
       selectedPatientsRank && selectedPatientsRank > 5
         ? {
-            province: selectedProvince,
+            province: selectedProv.province_name_th,
             patients: selectedRow.patients,
             rank: selectedPatientsRank,
-            region,
+            regionId,
           }
         : undefined;
 
     return NextResponse.json(
       {
-        region,
-        selected: { ...selectedRow, patientsRank: selectedPatientsRank }, // คงฟิลด์เดิม + เพิ่ม rank เสริม
+        regionId,
+        selected: { ...selectedRow, patientsRank: selectedPatientsRank },
         topPatients,
         topDeaths,
-        // 👉 ฟิลด์ใหม่ (สำหรับกราฟ Top5 + แท่งที่ 6 ถ้าอยู่นอก Top5)
         selectedProvince: selectedProvinceExtra,
       },
       { status: 200, headers: { "Content-Type": "application/json" } }

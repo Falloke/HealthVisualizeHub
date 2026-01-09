@@ -1,30 +1,11 @@
 // app/api/compareInfo/region-top5/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "kysely";
+import db from "@/lib/kysely3/db";
 
-type RegionByProvinceResp = {
-  region?: string;
-  topPatients?: Array<{ province: string; patients: number }>;
-  selected?: {
-    province: string;
-    patients: number;
-    patientsRank?: number;
-    region?: string;
-  };
-  selectedProvince?: {
-    province: string;
-    patients: number;
-    rank?: number;
-    region?: string;
-  };
-};
+export const runtime = "nodejs";
 
-type Row = {
-  province: string;
-  patients: number;
-  rank?: number;
-  isMain?: boolean;
-  isCompare?: boolean;
-};
+type Row = { province: string; patients: number; rank?: number; isMain?: boolean; isCompare?: boolean };
 
 type APIResp = {
   ok: boolean;
@@ -37,67 +18,30 @@ type APIResp = {
   error?: string;
 };
 
-// ---------------- helper: call dashboard API ----------------
-
-async function fetchRegionByProvince(
-  req: NextRequest,
-  opts: { start_date: string; end_date: string; province: string }
-): Promise<RegionByProvinceResp | null> {
-  const { start_date, end_date, province } = opts;
-
-  const url = new URL("/api/dashBoard/region-by-province", req.url);
-  url.searchParams.set("start_date", start_date);
-  url.searchParams.set("end_date", end_date);
-  url.searchParams.set("province", province);
-
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  const text = await res.text();
-
-  if (!res.ok) {
-    throw new Error(
-      text || `โหลดข้อมูลภูมิภาคของจังหวัด ${province} ไม่สำเร็จ`
-    );
-  }
-
-  if (!text) return null;
-  return JSON.parse(text) as RegionByProvinceResp;
+function parseDateOrThrow(v: string, name: string): Date {
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
+  return d;
 }
 
-// ---------------- helper: จัดการ rows เหมือนใน component เดิม ----------------
-
 function sortByPatientsDesc(rows: Row[]): Row[] {
-  return rows.sort(
-    (a, b) => Number(b.patients ?? 0) - Number(a.patients ?? 0)
-  );
+  rows.sort((a, b) => Number(b.patients ?? 0) - Number(a.patients ?? 0));
+  return rows;
 }
 
 function normalizeProvinceName(name: string | null | undefined): string {
-  return (name ?? "")
-    .replace(/\s*\(อันดับ\s*\d+\)\s*$/u, "")
-    .trim();
+  return (name ?? "").replace(/\s*\(อันดับ\s*\d+\)\s*$/u, "").trim();
 }
 
-function ensureSelectedProvince(
-  rows: Row[],
-  selected:
-    | RegionByProvinceResp["selected"]
-    | RegionByProvinceResp["selectedProvince"],
-  flags: Partial<Row>
-) {
-  if (!selected || !selected.province) return;
+function upsertSelected(rows: Row[], selected: { province: string; patients: number; rank?: number } | null, flags: Partial<Row>) {
+  if (!selected?.province) return;
 
   const norm = normalizeProvinceName(selected.province);
   const patients = Number(selected.patients ?? 0);
-  const rank = selected.rank ?? selected.patientsRank;
-  const label =
-    typeof rank === "number" && rank > 0
-      ? `${norm} (อันดับ ${rank})`
-      : norm;
+  const rank = selected.rank;
+  const label = typeof rank === "number" && rank > 0 ? `${norm} (อันดับ ${rank})` : norm;
 
-  const idx = rows.findIndex(
-    (r) => normalizeProvinceName(r.province) === norm
-  );
-
+  const idx = rows.findIndex((r) => normalizeProvinceName(r.province) === norm);
   if (idx >= 0) {
     rows[idx] = {
       ...rows[idx],
@@ -107,206 +51,171 @@ function ensureSelectedProvince(
       patients: rows[idx].patients ?? patients,
     };
   } else {
-    rows.push({
-      province: label,
-      patients,
-      rank,
-      ...flags,
-    });
+    rows.push({ province: label, patients, rank, ...flags });
   }
 }
 
-/**
- * จำกัด rows ให้เหลือไม่เกิน 5 แท่ง โดยบังคับให้ importantNames โผล่เสมอ
- */
 function ensureLimit5WithSelected(rows: Row[], importantNames: string[]): Row[] {
   const LIMIT = 5;
   sortByPatientsDesc(rows);
 
-  if (rows.length <= LIMIT && importantNames.length === 0) return rows;
-
-  const importantNorms = importantNames
-    .map(normalizeProvinceName)
-    .filter(Boolean);
+  const important = new Set(importantNames.map(normalizeProvinceName).filter(Boolean));
+  if (rows.length <= LIMIT && important.size === 0) return rows;
 
   const selectedRows: Row[] = [];
   const otherRows: Row[] = [];
 
   for (const row of rows) {
     const norm = normalizeProvinceName(row.province);
-    if (
-      importantNorms.includes(norm) &&
-      !selectedRows.some((r) => normalizeProvinceName(r.province) === norm)
-    ) {
-      selectedRows.push(row);
-    } else {
-      otherRows.push(row);
-    }
+    if (important.has(norm) && !selectedRows.some((r) => normalizeProvinceName(r.province) === norm)) selectedRows.push(row);
+    else otherRows.push(row);
   }
 
-  if (selectedRows.length >= LIMIT) {
-    return sortByPatientsDesc(selectedRows).slice(0, LIMIT);
-  }
+  if (selectedRows.length >= LIMIT) return sortByPatientsDesc(selectedRows).slice(0, LIMIT);
 
   const needOthers = LIMIT - selectedRows.length;
-  const chosenOthers = otherRows.slice(0, needOthers);
-
-  const result = [...selectedRows, ...chosenOthers];
-  sortByPatientsDesc(result);
-  return result;
+  const result = [...selectedRows, ...otherRows.slice(0, needOthers)];
+  return sortByPatientsDesc(result);
 }
 
-// ---------------- handler ----------------
+async function getRegionIdByProvinceName(provinceNameTh: string): Promise<number | null> {
+  const row = await db
+    .selectFrom("provinces")
+    .select(["region_id"])
+    .where("province_name_th", "=", provinceNameTh)
+    .executeTakeFirst();
+
+  return row?.region_id ?? null;
+}
+
+async function getPatientsCountByProvince(args: {
+  start: Date;
+  end: Date;
+  provinceNameTh: string;
+}): Promise<number> {
+  const row = await db
+    .selectFrom("influenza_cases as ic")
+    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    .select(sql<number>`COUNT(*)`.as("patients"))
+    .where("p.province_name_th", "=", args.provinceNameTh)
+    .where("ic.onset_date_parsed", ">=", args.start)
+    .where("ic.onset_date_parsed", "<=", args.end)
+    .executeTakeFirst();
+
+  return Number(row?.patients ?? 0);
+}
+
+async function top5ByRegionId(args: { start: Date; end: Date; regionId: number }): Promise<Row[]> {
+  const rows = await db
+    .selectFrom("influenza_cases as ic")
+    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    .select([
+      "p.province_name_th as province",
+      sql<number>`COUNT(*)`.as("patients"),
+    ])
+    .where("p.region_id", "=", args.regionId)
+    .where("ic.onset_date_parsed", ">=", args.start)
+    .where("ic.onset_date_parsed", "<=", args.end)
+    .groupBy("p.province_name_th")
+    .orderBy("patients", "desc")
+    .limit(5)
+    .execute();
+
+  return rows.map((r: any, i: number) => ({
+    province: String(r.province),
+    patients: Number(r.patients ?? 0),
+    rank: i + 1,
+  }));
+}
 
 export async function GET(req: NextRequest) {
   try {
-    const params = req.nextUrl.searchParams;
+    const sp = req.nextUrl.searchParams;
 
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-12-31";
-    const mainProvince = params.get("mainProvince");
-    const compareProvince = params.get("compareProvince");
+    const start_date = sp.get("start_date") ?? "2024-01-01";
+    const end_date = sp.get("end_date") ?? "2024-12-31";
+    const mainProvince = sp.get("mainProvince") ?? "";
+    const compareProvince = sp.get("compareProvince") ?? "";
 
     if (!mainProvince || !compareProvince) {
       return NextResponse.json<APIResp>(
-        {
-          ok: false,
-          sameRegion: false,
-          mainRows: [],
-          compareRows: [],
-          error:
-            "ต้องระบุทั้ง mainProvince และ compareProvince สำหรับการเปรียบเทียบ",
-        },
+        { ok: false, sameRegion: false, mainRows: [], compareRows: [], error: "ต้องระบุทั้ง mainProvince และ compareProvince" },
         { status: 400 }
       );
     }
 
-    const [jsonMain, jsonCompare] = await Promise.all([
-      fetchRegionByProvince(req, { start_date, end_date, province: mainProvince }),
-      fetchRegionByProvince(req, {
-        start_date,
-        end_date,
-        province: compareProvince,
-      }),
+    const start = parseDateOrThrow(start_date, "start_date");
+    const end = parseDateOrThrow(end_date, "end_date");
+
+    const [mRegionId, cRegionId] = await Promise.all([
+      getRegionIdByProvinceName(mainProvince),
+      getRegionIdByProvinceName(compareProvince),
     ]);
 
-    if (!jsonMain) {
-      return NextResponse.json<APIResp>(
-        {
-          ok: false,
-          sameRegion: false,
-          mainRows: [],
-          compareRows: [],
-          error: "ไม่พบข้อมูลของจังหวัดหลัก",
-        },
-        { status: 404 }
-      );
-    }
-
-    const mRegion =
-      jsonMain.selected?.region ||
-      jsonMain.selectedProvince?.region ||
-      jsonMain.region ||
-      "";
-    const cRegion =
-      jsonCompare?.selected?.region ||
-      jsonCompare?.selectedProvince?.region ||
-      jsonCompare?.region ||
-      "";
-
-    const sameRegion =
-      !!mRegion && !!cRegion && mRegion.trim() === cRegion.trim();
-
-    const baseMain: Row[] = (jsonMain.topPatients ?? [])
-      .slice(0, 5)
-      .map((d, i) => ({
-        province: d.province,
-        patients: Number(d.patients ?? 0),
-        rank: i + 1,
-      }));
-
-    const baseCompare: Row[] = (jsonCompare?.topPatients ?? [])
-      .slice(0, 5)
-      .map((d, i) => ({
-        province: d.province,
-        patients: Number(d.patients ?? 0),
-        rank: i + 1,
-      }));
-
-    const mainSelected =
-      jsonMain.selectedProvince ?? jsonMain.selected ?? undefined;
-    const compareSelected =
-      jsonCompare?.selectedProvince ?? jsonCompare?.selected ?? undefined;
+    const sameRegion = mRegionId != null && cRegionId != null && mRegionId === cRegionId;
 
     let mainRows: Row[] = [];
     let compareRows: Row[] = [];
     let note = "";
 
-    if (!mRegion) {
-      // ไม่มีข้อมูลภูมิภาคของจังหวัดหลัก
-      ensureSelectedProvince(baseMain, mainSelected, { isMain: true });
-      mainRows = ensureLimit5WithSelected(
-        baseMain,
-        mainSelected?.province ? [mainSelected.province] : []
-      );
+    // เตรียม “selected” ให้ยัดเข้าไปเสมอ
+    const [mainSelectedPatients, compareSelectedPatients] = await Promise.all([
+      getPatientsCountByProvince({ start, end, provinceNameTh: mainProvince }),
+      getPatientsCountByProvince({ start, end, provinceNameTh: compareProvince }),
+    ]);
+
+    const mainSelected = { province: mainProvince, patients: mainSelectedPatients };
+    const compareSelected = { province: compareProvince, patients: compareSelectedPatients };
+
+    if (mRegionId == null) {
+      // ไม่รู้ภาคของจังหวัดหลัก -> แสดงเท่าที่ทำได้
+      mainRows = [
+        { province: mainProvince, patients: mainSelectedPatients, rank: 1, isMain: true },
+      ];
       compareRows = [];
-      note = "ไม่พบข้อมูลภูมิภาคของจังหวัดหลัก";
+      note = "ไม่พบ region_id ของจังหวัดหลักในตาราง provinces";
     } else if (sameRegion) {
-      // รวม top ของภูมิภาคเดียวกัน แล้วบังคับให้ทั้งสองจังหวัดอยู่ในกราฟ
-      const combined: Row[] = [...baseMain];
+      const combined = await top5ByRegionId({ start, end, regionId: mRegionId });
 
-      ensureSelectedProvince(combined, mainSelected, { isMain: true });
-      ensureSelectedProvince(combined, compareSelected, { isCompare: true });
+      upsertSelected(combined, mainSelected, { isMain: true });
+      upsertSelected(combined, compareSelected, { isCompare: true });
 
-      const importantNames: string[] = [];
-      if (mainSelected?.province) importantNames.push(mainSelected.province);
-      if (compareSelected?.province)
-        importantNames.push(compareSelected.province);
-
-      mainRows = ensureLimit5WithSelected(combined, importantNames);
+      mainRows = ensureLimit5WithSelected(combined, [mainProvince, compareProvince]);
       compareRows = [];
-      note =
-        "จังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบอยู่ในภูมิภาคเดียวกัน จะแสดงไม่เกิน 5 จังหวัด โดยบังคับให้ทั้งสองจังหวัดที่เลือกอยู่ในกราฟเสมอ (ถ้าอยู่อันดับเกิน 5 จะดึงขึ้นมาแทนจังหวัดอื่น)";
+      note = "จังหวัดหลักและจังหวัดที่เปรียบเทียบอยู่ region_id เดียวกัน จะแสดงไม่เกิน 5 จังหวัดและบังคับให้ทั้งสองจังหวัดอยู่ในกราฟเสมอ";
     } else {
-      // อยู่คนละภูมิภาค → แยกกราฟซ้าย/ขวา
-      const rowsMain: Row[] = [...baseMain];
-      const rowsCompare: Row[] = [...baseCompare];
+      const rowsMain = await top5ByRegionId({ start, end, regionId: mRegionId });
+      upsertSelected(rowsMain, mainSelected, { isMain: true });
+      mainRows = ensureLimit5WithSelected(rowsMain, [mainProvince]);
 
-      ensureSelectedProvince(rowsMain, mainSelected, { isMain: true });
-      ensureSelectedProvince(rowsCompare, compareSelected, { isCompare: true });
+      if (cRegionId == null) {
+        compareRows = [{ province: compareProvince, patients: compareSelectedPatients, rank: 1, isCompare: true }];
+        note = "ไม่พบ region_id ของจังหวัดที่เปรียบเทียบในตาราง provinces";
+      } else {
+        const rowsCompare = await top5ByRegionId({ start, end, regionId: cRegionId });
+        upsertSelected(rowsCompare, compareSelected, { isCompare: true });
+        compareRows = ensureLimit5WithSelected(rowsCompare, [compareProvince]);
 
-      mainRows = ensureLimit5WithSelected(
-        rowsMain,
-        mainSelected?.province ? [mainSelected.province] : []
-      );
-      compareRows = ensureLimit5WithSelected(
-        rowsCompare,
-        compareSelected?.province ? [compareSelected.province] : []
-      );
-
-      note =
-        "จังหวัดที่ต้องการเปรียบเทียบอยู่นอกภูมิภาคของจังหวัดหลัก จึงแสดง Top 5 ของแต่ละภูมิภาคแยกกัน และบังคับให้จังหวัดที่เลือกทั้งสองโผล่ในกราฟของภูมิภาคตัวเองเสมอ (ตัดจังหวัดอื่นออกให้เหลือไม่เกิน 5 แท่ง)";
+        // note = "จังหวัดที่เปรียบเทียบอยู่นอกภูมิภาคของจังหวัดหลัก จึงแสดง Top 5 ของแต่ละภูมิภาคแยกกัน และบังคับให้จังหวัดที่เลือกโผล่ในกราฟของภูมิภาคตัวเองเสมอ";
+      }
     }
 
-    return NextResponse.json<APIResp>({
-      ok: true,
-      sameRegion,
-      mainRegion: mRegion || undefined,
-      compareRegion: cRegion || undefined,
-      mainRows,
-      compareRows,
-      note,
-    });
-  } catch (err) {
-    console.error("❌ API ERROR (compareInfo/region-top5):", err);
     return NextResponse.json<APIResp>(
       {
-        ok: false,
-        sameRegion: false,
-        mainRows: [],
-        compareRows: [],
-        error: "Internal Server Error",
+        ok: true,
+        sameRegion,
+        mainRegion: mRegionId != null ? String(mRegionId) : undefined,
+        compareRegion: cRegionId != null ? String(cRegionId) : undefined,
+        mainRows,
+        compareRows,
+        note,
       },
+      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
+    );
+  } catch (e: any) {
+    console.error("❌ API ERROR (compareInfo/region-top5):", e);
+    return NextResponse.json<APIResp>(
+      { ok: false, sameRegion: false, mainRows: [], compareRows: [], error: e?.message ?? "Internal Server Error" },
       { status: 500 }
     );
   }

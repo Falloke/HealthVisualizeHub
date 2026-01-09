@@ -1,37 +1,68 @@
-//app/api/dashBoard/gender-deaths/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely/db";
+import db from "@/lib/kysely3/db";
 import { sql } from "kysely";
+
+export const runtime = "nodejs";
+
+function parseDateOrFallback(input: string | null, fallback: string) {
+  const raw = (input && input.trim()) || fallback;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return new Date(fallback);
+  return d;
+}
+
+async function resolveProvinceId(provinceParam: string) {
+  const p = provinceParam.trim();
+
+  if (/^\d+$/.test(p)) return Number(p);
+
+  const found = await db
+    .selectFrom("provinces")
+    .select("province_id")
+    .where("province_name_th", "=", p)
+    .executeTakeFirst();
+
+  return found?.province_id ?? null;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const start_date = params.get("start_date") || "2024-01-01";
-    const end_date = params.get("end_date") || "2024-12-31";
+    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
+    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
     const province = params.get("province");
 
-    if (!province) {
+    if (!province || !province.trim()) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
+    const provinceId = await resolveProvinceId(province);
+    if (!provinceId) {
+      return NextResponse.json(
+        { error: `ไม่พบจังหวัด: ${province}` },
+        { status: 404 }
+      );
+    }
+
     const rows = await db
-      .selectFrom("d01_influenza")
+      .selectFrom("influenza_cases")
       .select(["gender", sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("death_date_parsed", ">=", new Date(start_date))
-      .where("death_date_parsed", "<=", new Date(end_date))
-      .where("province", "=", province)
+      .where("province_id", "=", provinceId)
+      .where("death_date_parsed", "is not", null)
+      .where("death_date_parsed", ">=", startDate)
+      .where("death_date_parsed", "<=", endDate)
       .groupBy("gender")
       .execute();
 
-    let male = 0,
-      female = 0;
-    rows.forEach((r) => {
-      const g = (r.gender || "").trim();
-      if (g === "M" || g === "ชาย") male = Number(r.deaths);
-      else if (g === "F" || g === "หญิง") female = Number(r.deaths);
-    });
+    let male = 0;
+    let female = 0;
 
-    // ✅ ส่งออกเฉพาะ ชาย/หญิง
+    for (const r of rows) {
+      const g = (r.gender || "").trim();
+      if (g === "M" || g === "ชาย") male += Number(r.deaths);
+      else if (g === "F" || g === "หญิง") female += Number(r.deaths);
+    }
+
     return NextResponse.json([
       { gender: "ชาย", value: male },
       { gender: "หญิง", value: female },

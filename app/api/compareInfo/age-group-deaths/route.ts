@@ -1,7 +1,9 @@
 // app/api/compareInfo/age-group-deaths/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "kysely";
+import db from "@/lib/kysely3/db";
 
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type AgeRow = { ageRange: string; deaths: number };
 
@@ -11,125 +13,144 @@ type RowMerged = {
   compareDeaths: number;
 };
 
-const AGE_ORDER = [
-  "0-4",
-  "5-9",
-  "10-14",
-  "15-19",
-  "20-24",
-  "25-44",
-  "45-59",
-  "60+",
-];
+const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
+const AGE_SET = new Set<string>(AGE_ORDER as unknown as string[]);
+
+function parseDateOrThrow(v: string, name: string): Date {
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
+  return d;
+}
+
+function normalizeAgeRange(v: unknown): string {
+  return String(v ?? "").trim();
+}
 
 function orderIndex(range: string): number {
-  const i = AGE_ORDER.indexOf(range.trim());
+  const i = (AGE_ORDER as unknown as string[]).indexOf(range);
   return i === -1 ? 999 : i;
 }
 
 function mergeAgeData(main: AgeRow[], compare: AgeRow[]): RowMerged[] {
-  const map = new Map<string, RowMerged>();
+  const mainMap = new Map<string, number>();
+  const compareMap = new Map<string, number>();
+  const extra = new Set<string>();
 
-  for (const r of main) {
-    const key = r.ageRange.trim();
-    const row =
-      map.get(key) ??
-      ({
-        ageRange: key,
-        mainDeaths: 0,
-        compareDeaths: 0,
-      } as RowMerged);
-    row.mainDeaths = Number(r.deaths ?? 0);
-    map.set(key, row);
+  for (const r of main ?? []) {
+    const k = normalizeAgeRange(r.ageRange);
+    const v = Number(r.deaths ?? 0);
+    mainMap.set(k, Number.isFinite(v) ? v : 0);
+    if (!AGE_SET.has(k)) extra.add(k);
   }
 
-  for (const r of compare) {
-    const key = r.ageRange.trim();
-    const row =
-      map.get(key) ??
-      ({
-        ageRange: key,
-        mainDeaths: 0,
-        compareDeaths: 0,
-      } as RowMerged);
-    row.compareDeaths = Number(r.deaths ?? 0);
-    map.set(key, row);
+  for (const r of compare ?? []) {
+    const k = normalizeAgeRange(r.ageRange);
+    const v = Number(r.deaths ?? 0);
+    compareMap.set(k, Number.isFinite(v) ? v : 0);
+    if (!AGE_SET.has(k)) extra.add(k);
   }
 
-  return Array.from(map.values()).sort(
-    (a, b) => orderIndex(a.ageRange) - orderIndex(b.ageRange)
-  );
+  const base: RowMerged[] = (AGE_ORDER as unknown as string[]).map((k) => ({
+    ageRange: k,
+    mainDeaths: mainMap.get(k) ?? 0,
+    compareDeaths: compareMap.get(k) ?? 0,
+  }));
+
+  const extras = Array.from(extra.values())
+    .filter((k) => !AGE_SET.has(k))
+    .sort((a, b) => orderIndex(a) - orderIndex(b) || a.localeCompare(b))
+    .map((k) => ({
+      ageRange: k,
+      mainDeaths: mainMap.get(k) ?? 0,
+      compareDeaths: compareMap.get(k) ?? 0,
+    }));
+
+  return base.concat(extras);
 }
 
-function buildBaseUrl(req: NextRequest): string {
-  const host =
-    req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  const proto = req.headers.get("x-forwarded-proto") ?? "http";
-  const envBase = process.env.NEXT_PUBLIC_BASE_URL;
-  return envBase && envBase.trim().length > 0 ? envBase : `${proto}://${host}`;
-}
-
-async function fetchAgeDeaths(args: {
-  baseUrl: string;
+async function queryAgeDeaths(args: {
   start_date: string;
   end_date: string;
-  province: string;
+  provinceNameTh: string;
 }): Promise<AgeRow[]> {
-  const { baseUrl, start_date, end_date, province } = args;
+  const start = parseDateOrThrow(args.start_date, "start_date");
+  const end = parseDateOrThrow(args.end_date, "end_date");
 
-  const url = new URL(
-    `/api/dashBoard/age-group-deaths?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-      province
-    )}`,
-    baseUrl
-  );
+  const ageCase = sql<string>`
+    CASE
+      WHEN ic.age_y BETWEEN 0 AND 4 THEN '0-4'
+      WHEN ic.age_y BETWEEN 5 AND 9 THEN '5-9'
+      WHEN ic.age_y BETWEEN 10 AND 14 THEN '10-14'
+      WHEN ic.age_y BETWEEN 15 AND 19 THEN '15-19'
+      WHEN ic.age_y BETWEEN 20 AND 24 THEN '20-24'
+      WHEN ic.age_y BETWEEN 25 AND 44 THEN '25-44'
+      WHEN ic.age_y BETWEEN 45 AND 59 THEN '45-59'
+      WHEN ic.age_y >= 60 THEN '60+'
+      ELSE NULL
+    END
+  `.as("ageRange");
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(
-      text || `Failed to fetch age-group-deaths for ${province}`
-    );
+  const rows = await db
+    .selectFrom("influenza_cases as ic")
+    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    .select([
+      ageCase,
+      sql<number>`COUNT(*)`.as("deaths"),
+    ])
+    .where("p.province_name_th", "=", args.provinceNameTh)
+    .where("ic.death_date_parsed", "is not", null)
+    .where("ic.death_date_parsed", ">=", start)
+    .where("ic.death_date_parsed", "<=", end)
+    .where(sql`ic.age_y IS NOT NULL`)
+    .groupBy("ageRange")
+    .execute();
+
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const k = String((r as any).ageRange ?? "").trim();
+    if (!k) continue;
+    map.set(k, Number((r as any).deaths ?? 0));
   }
-  return text ? (JSON.parse(text) as AgeRow[]) : [];
+
+  const ordered: AgeRow[] = (AGE_ORDER as unknown as string[]).map((k) => ({
+    ageRange: k,
+    deaths: map.get(k) ?? 0,
+  }));
+
+  const extras = Array.from(map.keys())
+    .filter((k) => !AGE_SET.has(k))
+    .sort((a, b) => orderIndex(a) - orderIndex(b) || a.localeCompare(b))
+    .map((k) => ({ ageRange: k, deaths: map.get(k) ?? 0 }));
+
+  return ordered.concat(extras);
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = req.nextUrl;
+    const sp = req.nextUrl.searchParams;
 
-    const start_date = searchParams.get("start_date") ?? "";
-    const end_date = searchParams.get("end_date") ?? "";
-    const mainProvince = searchParams.get("mainProvince") ?? "";
-    const compareProvince = searchParams.get("compareProvince") ?? "";
+    const start_date = sp.get("start_date") ?? "";
+    const end_date = sp.get("end_date") ?? "";
+    const mainProvince = sp.get("mainProvince") ?? "";
+    const compareProvince = sp.get("compareProvince") ?? "";
 
     if (!start_date || !end_date || !mainProvince || !compareProvince) {
-      return NextResponse.json(
-        { error: "missing required query params" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "missing required query params" }, { status: 400 });
     }
 
-    const baseUrl = buildBaseUrl(req);
-
     const [mainRows, compareRows] = await Promise.all([
-      fetchAgeDeaths({ baseUrl, start_date, end_date, province: mainProvince }),
-      fetchAgeDeaths({
-        baseUrl,
-        start_date,
-        end_date,
-        province: compareProvince,
-      }),
+      queryAgeDeaths({ start_date, end_date, provinceNameTh: mainProvince }),
+      queryAgeDeaths({ start_date, end_date, provinceNameTh: compareProvince }),
     ]);
 
-    const merged = mergeAgeData(mainRows ?? [], compareRows ?? []);
+    const merged = mergeAgeData(mainRows, compareRows);
 
-    return NextResponse.json(merged, { status: 200 });
+    return NextResponse.json(merged, {
+      status: 200,
+      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+    });
   } catch (e: any) {
     console.error("❌ [compareInfo/age-group-deaths] error:", e);
-    return NextResponse.json(
-      { error: e?.message ?? "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
   }
 }

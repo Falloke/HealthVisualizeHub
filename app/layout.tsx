@@ -9,6 +9,7 @@ import Sidebar from "./components/sidebar/SideBar";
 import SiteFooter from "./components/footer/SiteFooter";
 import { SessionProvider } from "next-auth/react";
 import SessionTracker from "@/app/components/telemetry/SessionTracker";
+import ScrollToTopButton from "./components/common/ScrollToTopButton";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -38,23 +39,25 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${robotoMono.variable} min-h-screen bg-white text-gray-900 antialiased`}
       >
-        {/* ทำให้คอมโพเนนต์ฝั่ง client ใช้ session ได้ทุกหน้า */}
         <SessionProvider refetchOnWindowFocus={false}>
-          {/* ติดตามการใช้งาน (start / heartbeat / end) เฉพาะตอนที่ผู้ใช้ล็อกอิน */}
           <SessionTracker />
 
-          {/* โครงสร้างหลักเป็นคอลัมน์ -> Footer ชิดล่างเสมอ */}
           <div className="flex min-h-screen flex-col">
             <NavbarSwitcher />
 
-            {/* พื้นที่หลักซ้าย/ขวา: Sidebar + Main */}
-            <div className="flex flex-1">
+            {/* ✅ สำคัญ: items-start เพื่อให้ sticky ของ Sidebar ทำงานถูก */}
+            <div className="flex flex-1 items-start">
               <Sidebar />
-              <main className="flex-1 bg-white p-6">{children}</main>
+
+              {/* ✅ min-w-0 กันเนื้อหากราฟกว้าง ๆ ดัน layout เพี้ยน */}
+              <main className="min-w-0 flex-1 bg-white p-6">{children}</main>
             </div>
 
             <SiteFooter />
           </div>
+
+          {/* ✅ ปุ่มกลับขึ้นด้านบน ใช้ได้ทุกหน้า */}
+          <ScrollToTopButton />
         </SessionProvider>
       </body>
     </html>

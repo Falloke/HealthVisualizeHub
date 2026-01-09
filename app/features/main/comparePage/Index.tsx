@@ -1,26 +1,69 @@
-// E:\HealtRiskHub\app\features\main\comparePage\Index.tsx
+// D:\HealtRiskHub\app\features\main\comparePage\Index.tsx
 "use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
 
-import CompareProvincePatientsChart from "@/app/features/main/comparePage/component/CompareProvincePatientsChart";
-import CompareProvinceDeathsChart from "@/app/features/main/comparePage/component/CompareProvinceDeathsChart";
-import CompareAgePatientsChart from "@/app/features/main/comparePage/component/CompareAgePatientsChart";
-import CompareAgeDeathsChart from "@/app/features/main/comparePage/component/CompareAgeDeathsChart";
-import CompareRegionTop5Chart from "@/app/features/main/comparePage/component/CompareRegionTop5Chart";
+// -------------------- UI helper --------------------
 
-import CompareGenderPatientsChart from "@/app/features/main/comparePage/component/CompareGenderPatientsChart";
-import CompareGenderDeathsChart from "@/app/features/main/comparePage/component/CompareGenderDeathsChart";
-import CompareGenderTrendChart from "@/app/features/main/comparePage/component/CompareGenderTrendChart";
+function ChartSkeleton({ height }: { height: number }) {
+  return (
+    <div
+      className="w-full overflow-hidden rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-100"
+      style={{ height }}
+      aria-busy="true"
+    >
+      <div className="h-full w-full animate-pulse rounded-lg bg-gray-100" />
+    </div>
+  );
+}
 
-import CompareNarrativeSection from "./component/CompareNarrativeSection";
-import FooterDashboard from "@/app/components/footer/FooterDashboard";
+// ✅ หน่วงการ render จนกว่า browser ว่าง (ไม่ต้องเลื่อนถึง)
+function DeferRender({
+  children,
+  fallback,
+  timeout = 1200,
+}: {
+  children: React.ReactNode;
+  fallback: React.ReactNode;
+  timeout?: number;
+}) {
+  const [ready, setReady] = useState(false);
 
-// ฟังก์ชันฟอร์แมตวันที่ไทย ให้หน้าตาเหมือนหน้า Dashboard
+  useEffect(() => {
+    let cancelled = false;
+    let idleId: number | null = null;
+    let tId: number | null = null;
+
+    const done = () => {
+      if (!cancelled) setReady(true);
+    };
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleId = (window as any).requestIdleCallback(done, { timeout });
+    } else {
+      tId = window.setTimeout(done, 0);
+    }
+
+    return () => {
+      cancelled = true;
+      if (idleId !== null && (window as any).cancelIdleCallback) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+      if (tId !== null) window.clearTimeout(tId);
+    };
+  }, [timeout]);
+
+  return <>{ready ? children : fallback}</>;
+}
+
+// ฟังก์ชันฟอร์แมตวันที่ไทย
 function formatThaiDate(dateStr?: string | null) {
   if (!dateStr) return "";
-  const [y, m, d] = dateStr.split("-").map(Number); // YYYY-MM-DD
+  const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, (m ?? 1) - 1, d ?? 1);
 
   const TH_MONTHS = [
@@ -44,140 +87,203 @@ function formatThaiDate(dateStr?: string | null) {
   return `${day} ${month} ${year}`;
 }
 
-const CompareInfo = () => {
-  const { diseaseNameTh, start_date, end_date } = useDashboardStore();
-  const { mainProvince, compareProvince } = useCompareStore();
+// -------------------- Dynamic imports --------------------
+// ✅ ชุดบน (Above-the-fold) โหลดทันที
+const CompareProvincePatientsChart = dynamic(
+  () => import("./component/CompareProvincePatientsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={220} /> }
+);
+
+const CompareProvinceDeathsChart = dynamic(
+  () => import("./component/CompareProvinceDeathsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={180} /> }
+);
+
+const CompareRegionTop5Chart = dynamic(
+  () => import("./component/CompareRegionTop5Chart"),
+  { ssr: false, loading: () => <ChartSkeleton height={420} /> }
+);
+
+// ✅ ชุดล่าง (Below-the-fold) จะถูก “หน่วง” ด้วย DeferRender อีกชั้น
+const CompareAgePatientsChart = dynamic(
+  () => import("./component/CompareAgePatientsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={280} /> }
+);
+
+const CompareAgeDeathsChart = dynamic(
+  () => import("./component/CompareAgeDeathsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={280} /> }
+);
+
+const CompareGenderPatientsChart = dynamic(
+  () => import("./component/CompareGenderPatientsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={260} /> }
+);
+
+const CompareGenderDeathsChart = dynamic(
+  () => import("./component/CompareGenderDeathsChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={260} /> }
+);
+
+const CompareGenderTrendChart = dynamic(
+  () => import("./component/CompareGenderTrendChart"),
+  { ssr: false, loading: () => <ChartSkeleton height={320} /> }
+);
+
+const CompareNarrativeSection = dynamic(
+  () => import("./component/CompareNarrativeSection"),
+  { ssr: false, loading: () => <ChartSkeleton height={180} /> }
+);
+
+const FooterDashboard = dynamic(
+  () => import("@/app/components/footer/FooterDashboard"),
+  { ssr: false, loading: () => <div className="h-12" /> }
+);
+
+export default function CompareInfo() {
+  // ✅ selector ลด re-render
+  const diseaseNameTh = useDashboardStore((s) => s.diseaseNameTh);
+  const start_date = useDashboardStore((s) => s.start_date);
+  const end_date = useDashboardStore((s) => s.end_date);
+
+  const mainProvince = useCompareStore((s) => s.mainProvince);
+  const compareProvince = useCompareStore((s) => s.compareProvince);
 
   const hasBoth = !!mainProvince && !!compareProvince;
-  const diseaseLabel = diseaseNameTh || "ยังไม่ได้เลือก";
 
-  const hasStart = Boolean(start_date);
-  const hasEnd = Boolean(end_date);
-  const rangeText =
-    hasStart || hasEnd
-      ? `${formatThaiDate(start_date) || "-"} ถึง ${
-          formatThaiDate(end_date) || "-"
-        }`
-      : "";
+  const diseaseLabel = useMemo(
+    () => diseaseNameTh || "ยังไม่ได้เลือก",
+    [diseaseNameTh]
+  );
+
+  const rangeText = useMemo(() => {
+    const hasStart = Boolean(start_date);
+    const hasEnd = Boolean(end_date);
+    if (!hasStart && !hasEnd) return "";
+    return `${formatThaiDate(start_date) || "-"} ถึง ${
+      formatThaiDate(end_date) || "-"
+    }`;
+  }, [start_date, end_date]);
 
   return (
-    <main className="min-h-screen w-full bg-white">
-      <div className="mx-auto w-full max-w-[1920px] space-y-6 px-4 md:px-6 lg:px-8">
-        {/* ------------------ ส่วนหัว ------------------ */}
-        <header className="rounded-xl border-b border-pink-100 bg-white px-4 py-5 shadow-sm">
-          <div className="max-w-4xl">
-            <h1 className="text-xl font-bold leading-snug text-pink-700 sm:text-2xl lg:text-3xl">
-              การเปรียบเทียบสถานการณ์{" "}
-              <span className="text-pink-900">{diseaseLabel}</span>{" "}
-              {hasBoth
-                ? `ระหว่างจังหวัด ${mainProvince} และจังหวัด ${compareProvince}`
-                : "ระหว่างจังหวัดต่าง ๆ"}
-            </h1>
+    <main className="w-full bg-white">
+      {/* ✅ container เหมือนหน้า Dashboard */}
+      <div className="mx-auto w-full max-w-[1920px] px-4 py-4 md:px-6 lg:px-8">
+        <div className="space-y-4 md:space-y-6">
+          {/* ------------------ ส่วนหัว (เหมือน Dashboard + เพิ่มกรอบชมพู) ------------------ */}
+          <header className="w-full">
+            {/* ✅ กล่องหัวข้อ + กรอบชมพูแบบหน้า Dashboard */}
+            <div className="overflow-hidden rounded-xl bg-white p-4 shadow-sm ring-1 ring-pink-100 md:p-6">
+              <div className="max-w-4xl">
+                <h1 className="text-xl font-bold leading-snug text-green-800 sm:text-2xl lg:text-3xl">
+                  การเปรียบเทียบสถานการณ์{" "}
+                  <span className="text-green-900">{diseaseLabel}</span>{" "}
+                  {hasBoth ? (
+                    <>
+                      ระหว่างจังหวัด {mainProvince} และจังหวัด {compareProvince}
+                    </>
+                  ) : (
+                    <>ระหว่างจังหวัด (เลือกจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ)</>
+                  )}
+                </h1>
 
-            {(hasStart || hasEnd) && (
-              <p className="mt-2 text-sm text-gray-700 sm:text-base">
-                ช่วงวันที่{" "}
-                <span className="font-semibold text-gray-900">
-                  {rangeText}
-                </span>
-              </p>
+                {rangeText && (
+                  <p className="mt-2 text-sm text-gray-700 sm:text-base">
+                    ช่วงวันที่{" "}
+                    <span className="font-semibold text-gray-900">
+                      {rangeText}
+                    </span>
+                  </p>
+                )}
+
+                {!hasBoth && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    เลือกจังหวัดทั้งสองฝั่งจาก Sidebar ให้ครบ 2 จังหวัดก่อน จากนั้นกราฟเปรียบเทียบจะปรากฏด้านล่าง
+                  </p>
+                )}
+              </div>
+            </div>
+          </header>
+
+          {/* ------------------ ผู้ป่วย & ผู้เสียชีวิตสะสมรายจังหวัด ------------------ */}
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
+            {hasBoth ? (
+              <>
+                <CompareProvincePatientsChart />
+                <CompareProvinceDeathsChart />
+              </>
+            ) : (
+              <>
+                <ChartSkeleton height={220} />
+                <ChartSkeleton height={180} />
+              </>
             )}
+          </section>
 
-            <p className="mt-1 text-xs text-gray-600 sm:text-sm">
-              จังหวัดหลัก:{" "}
-              <span className="font-semibold">
-                {mainProvince || "ยังไม่ได้เลือกจากแถบด้านซ้าย"}
-              </span>{" "}
-              · จังหวัดที่ต้องการเปรียบเทียบ:{" "}
-              <span className="font-semibold">
-                {compareProvince || "ยังไม่ได้เลือก"}
-              </span>
-            </p>
+          {/* ------------------ Top 5 ในภูมิภาค ------------------ */}
+          <section>
+            {hasBoth ? <CompareRegionTop5Chart /> : <ChartSkeleton height={420} />}
+          </section>
 
-            {!hasBoth && (
-              <p className="mt-1 text-xs text-gray-500">
-                เลือกจังหวัดทั้งสองฝั่งจาก Sidebar ให้ครบ 2 จังหวัดก่อน
-                จากนั้นกราฟเปรียบเทียบจะปรากฏด้านล่าง
-              </p>
+          {/* ------------------ ช่วงอายุ ------------------ */}
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
+            {hasBoth ? (
+              <>
+                <DeferRender fallback={<ChartSkeleton height={280} />}>
+                  <CompareAgePatientsChart />
+                </DeferRender>
+                <DeferRender fallback={<ChartSkeleton height={280} />}>
+                  <CompareAgeDeathsChart />
+                </DeferRender>
+              </>
+            ) : (
+              <>
+                <ChartSkeleton height={280} />
+                <ChartSkeleton height={280} />
+              </>
             )}
-          </div>
-        </header>
+          </section>
 
-        {/* ------------------ ผู้ป่วย & ผู้เสียชีวิตสะสมรายจังหวัด ------------------ */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {hasBoth ? (
-            <>
-              <CompareProvincePatientsChart />
-              <CompareProvinceDeathsChart />
-            </>
-          ) : (
-            <div className="rounded bg-white p-4 text-sm text-gray-500 shadow lg:col-span-2">
-              (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar
-              ให้ครบ 2 จังหวัดก่อน เพื่อแสดงกราฟผู้ป่วยและผู้เสียชีวิตสะสม)
-            </div>
-          )}
-        </section>
+          {/* ------------------ เพศ ------------------ */}
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
+            {hasBoth ? (
+              <>
+                <DeferRender fallback={<ChartSkeleton height={260} />}>
+                  <CompareGenderPatientsChart />
+                </DeferRender>
+                <DeferRender fallback={<ChartSkeleton height={260} />}>
+                  <CompareGenderDeathsChart />
+                </DeferRender>
+              </>
+            ) : (
+              <>
+                <ChartSkeleton height={260} />
+                <ChartSkeleton height={260} />
+              </>
+            )}
+          </section>
 
-        {/* ------------------ Top 5 ในภูมิภาค ------------------ */}
-        <section>
-          {hasBoth ? (
-            <CompareRegionTop5Chart />
-          ) : (
-            <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
-              (กราฟ Top 5 จังหวัดในภูมิภาคจะแสดงเมื่อเลือกจังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบครบ
-              2 จังหวัด)
-            </div>
-          )}
-        </section>
+          {/* ------------------ แนวโน้มรายเดือน ------------------ */}
+          <section>
+            {hasBoth ? (
+              <DeferRender fallback={<ChartSkeleton height={320} />}>
+                <CompareGenderTrendChart />
+              </DeferRender>
+            ) : (
+              <ChartSkeleton height={320} />
+            )}
+          </section>
 
-        {/* ------------------ ช่วงอายุ ------------------ */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {hasBoth ? (
-            <>
-              <CompareAgePatientsChart />
-              <CompareAgeDeathsChart />
-            </>
-          ) : (
-            <div className="rounded bg-white p-4 text-sm text-gray-500 shadow lg:col-span-2">
-              (เลือกจังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบให้ครบ
-              เพื่อดูผู้ป่วยและผู้เสียชีวิตตามช่วงอายุ)
-            </div>
-          )}
-        </section>
+          {/* ------------------ AI Narrative ------------------ */}
+          <DeferRender fallback={<ChartSkeleton height={180} />} timeout={2000}>
+            <CompareNarrativeSection />
+          </DeferRender>
 
-        {/* ------------------ เพศ (กราฟแท่ง) ------------------ */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {hasBoth ? (
-            <>
-              <CompareGenderPatientsChart />
-              <CompareGenderDeathsChart />
-            </>
-          ) : (
-            <div className="rounded bg-white p-4 text-sm text-gray-500 shadow lg:col-span-2">
-              (ระบบจะแสดงกราฟผู้ป่วยและผู้เสียชีวิตแยกตามเพศ
-              เมื่อเลือกจังหวัดทั้งสองฝั่งครบแล้ว)
-            </div>
-          )}
-        </section>
-
-        {/* ------------------ แนวโน้มผู้ป่วยแยกตามเพศ (รายเดือน) ------------------ */}
-        <section>
-          {hasBoth ? (
-            <CompareGenderTrendChart />
-          ) : (
-            <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
-              (กราฟเปรียบเทียบแนวโน้มผู้ป่วยแยกตามเพศรายเดือน
-              จะแสดงเมื่อเลือกจังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบครบ 2 จังหวัด)
-            </div>
-          )}
-        </section>
-
-        {/* ------------------ AI Narrative ------------------ */}
-        <CompareNarrativeSection />
-        <FooterDashboard />
+          <DeferRender fallback={<div className="h-12" />} timeout={2500}>
+            <FooterDashboard />
+          </DeferRender>
+        </div>
       </div>
     </main>
   );
-};
-
-export default CompareInfo;
+}

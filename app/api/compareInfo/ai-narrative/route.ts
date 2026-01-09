@@ -1,40 +1,36 @@
 // app/api/compareInfo/ai-narrative/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-/**
- * Proxy สำหรับหน้า "เปรียบเทียบจังหวัด"
- * - รับ payload จาก client (ที่ได้จาก composeAINarrativePayload)
- * - forward ไปยัง /api/ai/generate
- * - ส่งผลลัพธ์กลับแบบเดิม ไม่เปลี่ยนรูปแบบ
- */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+    }
 
     const targetUrl = new URL("/api/ai/generate", req.nextUrl.origin);
 
-    const aiRes = await fetch(targetUrl, {
+    const aiRes = await fetch(targetUrl.toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       cache: "no-store",
     });
 
-    const text = await aiRes.text();
+    const text = await aiRes.text().catch(() => "");
 
-    // ส่งต่อ status / content-type ตามของเดิม
     return new NextResponse(text, {
       status: aiRes.status,
       headers: {
-        "Content-Type":
-          aiRes.headers.get("content-type") ?? "application/json; charset=utf-8",
+        "Content-Type": aiRes.headers.get("content-type") ?? "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
       },
     });
   } catch (err) {
     console.error("❌ API ERROR (compareInfo/ai-narrative):", err);
-    return NextResponse.json(
-      { ok: false, error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

@@ -1,53 +1,84 @@
 // app/features/main/comparePage/component/CompareNarrativeSection.tsx
 "use client";
 
-import { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { getSession } from "next-auth/react";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
-import { composeAINarrativePayload } from "../../dashBoardPage/composePayload.client";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/app/components/ui/card";
+  composeAINarrativePayload,
+  type AINarrativePayload,
+} from "../../dashBoardPage/composePayload.client";
+
+import { Card, CardHeader, CardTitle, CardContent } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
 
-export default function CompareNarrativeSection() {
+type Props = {
+  prefetchedPayload?: AINarrativePayload | null;
+};
+
+function safeJson(text: string): any {
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return null;
+  }
+}
+
+export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
   const router = useRouter();
-  const { status } = useSession();
-  const isAuthed = status === "authenticated";
 
-  const { province, start_date, end_date } = useDashboardStore();
-  const { mainProvince, compareProvince } = useCompareStore();
+  const province = useDashboardStore((s) => s.province);
+  const start_date = useDashboardStore((s) => s.start_date);
+  const end_date = useDashboardStore((s) => s.end_date);
 
+  const mainProvince = useCompareStore((s) => s.mainProvince);
+  const compareProvince = useCompareStore((s) => s.compareProvince);
+
+  const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [article, setArticle] = useState("");
   const [showLockModal, setShowLockModal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // ต้องเลือกทั้งจังหวัดหลักและจังหวัดที่เปรียบเทียบให้ครบ
   const hasBoth = !!mainProvince && !!compareProvince;
 
-  // จังหวัดฐานหลักที่ใช้ใน payload (เอา current province ก่อน แล้วค่อย fallback)
-  const baseProvince =
-    province || mainProvince || compareProvince || "ยังไม่ได้เลือกจังหวัด";
+  const baseProvince = useMemo(() => {
+    return province || mainProvince || compareProvince || "ยังไม่ได้เลือกจังหวัด";
+  }, [province, mainProvince, compareProvince]);
 
-  // ----------------- สร้าง AI Narrative -----------------
-  async function handleGenerateAuthed() {
-    // ถ้ายังไม่เลือกจังหวัดครบ 2 จังหวัด ห้าม gen
+  const sectionRef = useRef<HTMLDivElement | null>(null);
+  const lastTriggerAtRef = useRef(0);
+
+  const scrollToMe = () => {
+    const el = sectionRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  async function handleGenerate(fromSidebar = false) {
+    setExpanded(true);
+    if (fromSidebar) window.setTimeout(() => scrollToMe(), 50);
+
     if (!hasBoth) {
-      alert("กรุณาเลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบให้ครบก่อน");
+      setArticle("");
+      setError("กรุณาเลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบให้ครบก่อน");
+      return;
+    }
+
+    const session = await getSession();
+    if (!session) {
+      setShowLockModal(true);
       return;
     }
 
     try {
       setLoading(true);
+      setError(null);
       setArticle("");
 
-      // คำสั่งพิเศษที่ให้ AI เน้น "เปรียบเทียบสองจังหวัด" ในทุกหัวข้อ
       const compareNote = `
 โหมดการใช้งาน: หน้า "เปรียบเทียบจังหวัด"
 
@@ -55,141 +86,139 @@ export default function CompareNarrativeSection() {
 - จังหวัดที่ผู้อ่านใช้เปรียบเทียบชื่อ "${compareProvince}"
 
 ข้อกำหนดสำคัญสำหรับรายงานนี้:
-1. ทุกหัวข้อของรายงาน (**รายงานสถานการณ์**, **แนวโน้มรายเดือน**, **การเปรียบเทียบจังหวัดกับภูมิภาค**, **การกระจายตามกลุ่มอายุ**, **เปรียบเทียบเพศ**, **ข้อเสนอแนะเชิงปฏิบัติ**, **สรุปย่อ**) ต้องมีอย่างน้อย 1–2 ประโยคที่พูดถึงการ "เปรียบเทียบ" ระหว่างจังหวัดหลัก "${baseProvince}" กับจังหวัดที่ใช้เปรียบเทียบ "${compareProvince}" โดยระบุชื่อจังหวัดให้ชัดเจน
-2. ห้ามสร้างตัวเลขของจังหวัด "${compareProvince}" ขึ้นมาเอง ถ้าไม่มีตัวเลขใน JSON ให้เปรียบเทียบเชิงคุณภาพเท่านั้น เช่น
-   - ชี้แนะให้ผู้อ่านดูกราฟหรือแดชบอร์ดเพื่อเห็นว่าจังหวัดใดมีแนวโน้มสูง/ต่ำกว่า
-   - หรือระบุว่า "ไม่มีตัวเลขของจังหวัดที่เปรียบเทียบในชุดข้อมูลนี้"
-3. ในแต่ละหัวข้อให้เขียนเชื่อมโยงชัด ๆ ว่า ข้อมูลของจังหวัดหลักสามารถใช้เป็นฐานในการดูความแตกต่างกับจังหวัด "${compareProvince}" ได้อย่างไร (เช่น แนวโน้ม, กลุ่มอายุที่เด่น, เพศที่มีผู้ป่วยมากกว่า เป็นต้น)
-`.trim();
+1. ทุกหัวข้อของรายงานต้องมี 1–2 ประโยคที่พูดถึงการ "เปรียบเทียบ" ระหว่าง "${baseProvince}" กับ "${compareProvince}" โดยระบุชื่อจังหวัดชัดเจน
+2. ห้ามสร้างตัวเลขของจังหวัด "${compareProvince}" ขึ้นมาเอง ถ้าไม่มีตัวเลขใน JSON ให้เปรียบเทียบเชิงคุณภาพเท่านั้น
+3. ต้องเชื่อมโยงว่าข้อมูลจังหวัดหลักใช้เป็นฐานดูความต่างกับ "${compareProvince}" อย่างไร
+      `.trim();
 
-      const payload = await composeAINarrativePayload(compareNote);
+      const payload: AINarrativePayload = prefetchedPayload
+        ? {
+            ...prefetchedPayload,
+            extraNotes: [prefetchedPayload.extraNotes, compareNote]
+              .filter(Boolean)
+              .join("\n\n"),
+          }
+        : await composeAINarrativePayload(compareNote);
 
-      // 🔁 เปลี่ยนให้เรียก API ใหม่ใต้ /compareInfo
       const res = await fetch("/api/compareInfo/ai-narrative", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        // ถ้า parsing ไม่ได้ ให้ถือว่า error
-        throw new Error("รูปแบบข้อมูลที่ได้จาก AI ไม่ถูกต้อง");
+      const text = await res.text().catch(() => "");
+      const data = safeJson(text);
+
+      if (!res.ok) {
+        const msg =
+          (data && (data.error || data.message)) || text || "AI request failed";
+        throw new Error(msg);
+      }
+      if (!data || !data.ok) {
+        throw new Error((data && data.error) || "AI failed");
       }
 
-      if (!data.ok) throw new Error(data.error || "AI failed");
-
-      setArticle(data.content as string);
+      setArticle(String(data.content ?? ""));
+      window.setTimeout(() => scrollToMe(), 80);
     } catch (e: any) {
       console.error("❌ Compare AI Narrative error:", e);
-      alert(e?.message ?? "เกิดข้อผิดพลาด");
+      setError(e?.message ?? "เกิดข้อผิดพลาด");
     } finally {
       setLoading(false);
     }
   }
 
-  function handleGenerate() {
-    if (!isAuthed) {
-      setShowLockModal(true);
-      return;
-    }
-    void handleGenerateAuthed();
-  }
-
   function downloadTxt() {
     if (!article) return;
-    const blob = new Blob([article], {
-      type: "text/plain;charset=utf-8",
-    });
+    const blob = new Blob([article], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `compare_narrative_${baseProvince}_${start_date}_${end_date}.txt`;
+    a.download = `compare_narrative_${baseProvince}_vs_${compareProvince}_${start_date}_${end_date}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  // ----------------- UI -----------------
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onTrigger = () => {
+      const now = Date.now();
+      if (now - lastTriggerAtRef.current < 500) return;
+      lastTriggerAtRef.current = now;
+      handleGenerate(true);
+    };
+
+    window.addEventListener("ai:compare:narrative:generate", onTrigger);
+    window.addEventListener("ai:narrative:generate", onTrigger);
+
+    const pending = (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__;
+    if (pending && typeof pending === "number") {
+      const age = Date.now() - pending;
+      if (age >= 0 && age <= 8000) {
+        (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__ = null;
+        window.setTimeout(() => onTrigger(), 120);
+      }
+    }
+
+    return () => {
+      window.removeEventListener("ai:compare:narrative:generate", onTrigger);
+      window.removeEventListener("ai:narrative:generate", onTrigger);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBoth, baseProvince, compareProvince, start_date, end_date]);
+
+  const shouldShow = expanded || loading || !!article || !!error;
+
+  if (!shouldShow) return <div ref={sectionRef} />;
+
   return (
     <>
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>
-            AI Narrative — คำอธิบายการเปรียบเทียบแดชบอร์ดอัตโนมัติ
-          </CardTitle>
-        </CardHeader>
+      <div ref={sectionRef} className="mt-6 scroll-mt-24">
+        <Card>
+          {/* ✅ หัวข้อกล่อง ตามที่ขอ */}
+          <CardHeader>
+            <CardTitle>AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ</CardTitle>
+          </CardHeader>
 
-        <CardContent className="space-y-3">
-          <p className="text-sm text-gray-600">
-            ระบบจะสร้างคำบรรยายอัตโนมัติจากตัวกรองปัจจุบัน โดยใช้จังหวัด{" "}
-            <span className="font-semibold">{baseProvince}</span>{" "}
-            เป็นฐานข้อมูลหลัก
-            {hasBoth && (
+          <CardContent className="space-y-3">
+            {/* ✅ ไม่มีปุ่ม Generate แล้ว (กดจาก sidebar เท่านั้น) */}
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            {loading && (
+              <div className="rounded-lg bg-muted p-4 text-sm text-gray-700">
+                กำลังสร้างคำอธิบาย… โปรดรอสักครู่
+              </div>
+            )}
+
+            {article && (
               <>
-                {" "}
-                และใช้บริบทการเปรียบเทียบระหว่าง{" "}
-                <span className="font-semibold">{mainProvince}</span> กับ{" "}
-                <span className="font-semibold">{compareProvince}</span>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button variant="secondary" onClick={downloadTxt}>
+                    ดาวน์โหลด .txt
+                  </Button>
+                </div>
+
+                <div className="whitespace-pre-wrap rounded-lg bg-muted p-4 leading-7">
+                  {article}
+                </div>
               </>
             )}
-            .
-          </p>
+          </CardContent>
+        </Card>
+      </div>
 
-          {!hasBoth && (
-            <p className="text-xs text-amber-600">
-              (ต้องเลือกทั้งจังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบ
-              จึงจะสามารถสร้าง AI Narrative ได้)
-            </p>
-          )}
-
-          <div className="flex gap-2">
-            <Button
-              onClick={handleGenerate}
-              disabled={loading || !hasBoth}
-              title={
-                !hasBoth
-                  ? "กรุณาเลือกจังหวัดหลักและจังหวัดที่ต้องการเปรียบเทียบให้ครบก่อน"
-                  : ""
-              }
-            >
-              {loading ? "กำลังสร้างบทความ…" : "Generate Narrative"}
-            </Button>
-
-            <Button
-              variant="secondary"
-              onClick={downloadTxt}
-              disabled={!article}
-              title={!article ? "สร้างบทความก่อนจึงจะดาวน์โหลดได้" : ""}
-            >
-              ดาวน์โหลด .txt
-            </Button>
-          </div>
-
-          {article && (
-            <div className="mt-4 whitespace-pre-wrap rounded-lg bg-muted p-4 leading-7">
-              {article}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Modal บังคับล็อกอิน */}
       {showLockModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           aria-modal="true"
           role="dialog"
         >
-          {/* ฉากดำด้านหลัง */}
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowLockModal(false)}
           />
-
-          {/* กล่อง modal */}
           <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-3 text-lg font-semibold text-gray-900">
               ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
@@ -207,10 +236,7 @@ export default function CompareNarrativeSection() {
               >
                 ปิด
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => router.push("/register")}
-              >
+              <Button variant="secondary" onClick={() => router.push("/register")}>
                 Register
               </Button>
               <Button onClick={() => router.push("/login")}>Login</Button>

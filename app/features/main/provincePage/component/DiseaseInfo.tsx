@@ -61,7 +61,7 @@ export default function DiseaseInfo() {
   if (!data) return null;
 
   return (
-    <div className="grid w-full grid-cols-3 gap-4">
+    <div className="grid w-full grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
       <DiseaseDescription description={data.description_th} />
       <DiseasePreventions items={data.preventions} />
       <DiseaseSymptoms items={data.symptoms} />

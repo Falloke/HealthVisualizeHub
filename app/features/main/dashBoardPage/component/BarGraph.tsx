@@ -14,14 +14,14 @@ import GraphRegionTop5 from "@/app/components/bargraph/GraphRegionTop5";
 const BarGraph = () => {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 md:gap-4">
+      <div className="grid lg:grid-cols-2 grid-cols-1 gap-2 md:gap-4">
         
         <GraphProvincePatients />
         <GraphProvinceDeaths />
         <GraphRegionTop5 />
         {/* <GraphPatientsByRegion /> */}
-        <GraphDeathsByRegion />
         <GraphByAgePatients />
+        <GraphDeathsByRegion />
         <GraphByAgeDeaths />
         <GraphByGenderPatients />
         <GraphByGenderDeaths />
