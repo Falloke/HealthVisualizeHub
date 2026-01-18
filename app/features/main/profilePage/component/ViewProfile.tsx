@@ -52,7 +52,7 @@ const ViewProfile = () => {
     if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการปิดการใช้งานบัญชีนี้?")) return;
 
     try {
-      const res = await fetch("/api/profile", { method: "DELETE" }); // ✅ ใช้ DELETE
+      const res = await fetch("/api/profile", { method: "DELETE" });
 
       if (res.ok) {
         alert("บัญชีถูกปิดการใช้งานเรียบร้อยแล้ว");
@@ -68,75 +68,92 @@ const ViewProfile = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-sky-100 to-white">
         กำลังโหลดโปรไฟล์...
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
-      <div className="flex w-full max-w-6xl overflow-hidden rounded-xl bg-white">
-        {/* Left Side */}
-        <div className="flex w-1/2 items-center justify-center bg-pink-100">
-          <Image
-            src="/images/editprofile.png"
-            alt="Profile"
-            width={400}
-            height={400}
-          />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-sky-100 to-white px-4 py-10">
+      {/* Card (คล้ายหน้า Login) */}
+      <div className="flex w-full max-w-6xl overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-xl">
+        {/* Left Side (โทนฟ้าแบบหน้า login) */}
+        <div className="relative hidden w-1/2 items-center justify-center bg-sky-500 md:flex">
+          {/* เงา/ไล่สีให้นุ่มขึ้น */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 to-black/10" />
+          <div className="relative flex items-center justify-center p-8">
+            <Image
+              src="/images/editprofile.png"
+              alt="Profile"
+              width={420}
+              height={420}
+              className="h-auto w-auto drop-shadow-sm"
+              priority
+            />
+          </div>
         </div>
 
         {/* Right Side */}
-        <div className="w-1/2 p-10">
-          <div className="flex items-center justify-between">
-            <h2 className="text-3xl font-bold text-pink-600">โปรไฟล์ของฉัน</h2>
+        <div className="w-full p-6 md:w-1/2 md:p-10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-3xl font-bold text-sky-700">โปรไฟล์ของฉัน</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                ดูข้อมูลบัญชีและจัดการโปรไฟล์ของคุณ
+              </p>
+            </div>
+
             <button
               onClick={handleDelete}
-              className="flex items-center gap-2 rounded-md bg-red-500 px-3 py-1 text-sm text-white hover:bg-red-600"
+              className="flex items-center gap-2 rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white hover:bg-red-600"
             >
-              <Icons name="Delete" size={16} colorClass="bg-white" />{" "}
-              {/* ✅ ไอคอน */}
+              <Icons name="Delete" size={16} colorClass="bg-white" />
               ลบบัญชี
             </button>
           </div>
 
           {!viewData ? (
-            <p className="mt-6 text-center text-gray-500">ไม่พบข้อมูลโปรไฟล์</p>
+            <p className="mt-8 text-center text-gray-500">ไม่พบข้อมูลโปรไฟล์</p>
           ) : (
             <>
-              <div className="mt-6 grid grid-cols-2 gap-4 text-gray-700">
-                <div>
-                  <p className="text-sm text-gray-500">ชื่อ</p>
-                  <p className="font-medium">{viewData.firstName}</p>
+              <div className="mt-8 grid grid-cols-1 gap-4 text-slate-700 sm:grid-cols-2">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">ชื่อ</p>
+                  <p className="mt-1 font-medium">{viewData.firstName}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">นามสกุล</p>
-                  <p className="font-medium">{viewData.lastName}</p>
+
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">นามสกุล</p>
+                  <p className="mt-1 font-medium">{viewData.lastName}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">จังหวัด</p>
-                  <p className="font-medium">{viewData.province}</p>
+
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">จังหวัด</p>
+                  <p className="mt-1 font-medium">{viewData.province}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">วันเกิด</p>
-                  <p className="font-medium">{viewData.dob}</p>
+
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">วันเกิด</p>
+                  <p className="mt-1 font-medium">{viewData.dob}</p>
                 </div>
-                <div className="col-span-2">
-                  <p className="text-sm text-gray-500">ตำแหน่ง</p>
-                  <p className="font-medium">{viewData.position}</p>
+
+                <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                  <p className="text-sm text-slate-500">ตำแหน่ง</p>
+                  <p className="mt-1 font-medium">{viewData.position}</p>
                 </div>
-                <div className="col-span-2">
-                  <p className="text-sm text-gray-500">อีเมล</p>
-                  <p className="font-medium">{viewData.email}</p>
+
+                <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                  <p className="text-sm text-slate-500">อีเมล</p>
+                  <p className="mt-1 font-medium break-all">{viewData.email}</p>
                 </div>
               </div>
 
               {/* ปุ่มไปหน้า Edit */}
-              <div className="mt-8 flex justify-center">
+              <div className="mt-10 flex justify-center">
                 <button
                   onClick={() => router.push("/editprofile")}
-                  className="rounded-xl bg-pink-500 px-6 py-2 text-white hover:bg-pink-600"
+                  className="rounded-xl bg-sky-600 px-7 py-2.5 font-medium text-white shadow-sm hover:bg-sky-700"
                 >
                   แก้ไขโปรไฟล์
                 </button>

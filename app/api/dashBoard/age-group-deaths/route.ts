@@ -39,6 +39,16 @@ async function resolveProvinceId(provinceParam: string) {
   return found?.province_id ?? null;
 }
 
+/** ✅ mapping คอลัมน์วันที่ตาม schema (ไม่แตะ DB) */
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim(); // เช่น "date" หรือ "timestamptz"
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
@@ -52,22 +62,21 @@ export async function GET(request: NextRequest) {
 
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 📍 ดึงข้อมูลผู้เสียชีวิตของจังหวัดนั้น (นับจาก death_date_parsed)
+    const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
+
+    // 📍 ดึงข้อมูลผู้เสียชีวิตของจังหวัดนั้น
     const rows = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("deaths"), "age_y"])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .where("age_y", "is not", null)
-      .groupBy("age_y")
+      .selectFrom("influenza_cases as ic")
+      .select([sql<number>`COUNT(*)`.as("deaths"), "ic.age_y as age_y"])
+      .where("ic.province_id", "=", provinceId)
+      .where(sql<boolean>`${deathDate} IS NOT NULL`)
+      .where(deathDate, ">=", startDate)
+      .where(deathDate, "<=", endDate)
+      .where("ic.age_y", "is not", null)
+      .groupBy("ic.age_y")
       .execute();
 
     // 📊 Map age → group
@@ -75,11 +84,11 @@ export async function GET(request: NextRequest) {
     for (const g of ageGroups) grouped[g.label] = 0;
 
     for (const row of rows) {
-      const age = Number(row.age_y);
+      const age = Number((row as any).age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number(row.deaths);
+      if (group) grouped[group.label] += Number((row as any).deaths);
     }
 
     const result = Object.entries(grouped).map(([ageRange, deaths]) => ({
@@ -93,9 +102,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group-deaths):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

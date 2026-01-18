@@ -77,7 +77,6 @@ const sortUsers = (arr: AdminUser[]) =>
 /* badge บทบาท Member / Admin */
 function RoleBadge({ role }: { role?: string | null }) {
   const isAdmin = role === "Admin";
-
   const text = isAdmin ? "Admin" : "Member";
 
   const className = isAdmin
@@ -382,17 +381,25 @@ export default function UsersTable() {
 
   /* ---------- UI ---------- */
 
+  // ✅ theme ฟ้าแบบที่ทำไว้
+  const primaryBtn =
+    "rounded-md bg-sky-600 px-4 py-2 text-white hover:bg-sky-700 shadow-sm focus:outline-none focus:ring-4 focus:ring-sky-200";
+  const primaryBtnSoft =
+    "rounded-md bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-50";
+  const inputBase =
+    "w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 bg-white";
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">ผู้ใช้งาน</h2>
+        <h2 className="text-xl font-semibold text-sky-800">ผู้ใช้งาน</h2>
 
         <div className="flex items-center gap-4">
           {/* เลือกจำนวนคนต่อหน้า */}
           <div className="hidden md:flex items-center gap-2 text-sm text-gray-600">
             <span>แสดง</span>
             <select
-              className="rounded-md border px-2 py-1 text-sm bg-white"
+              className="rounded-md border px-2 py-1 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
               value={pageSize === "all" ? "all" : String(pageSize)}
               onChange={(e) => {
                 const v = e.target.value;
@@ -410,15 +417,13 @@ export default function UsersTable() {
           </div>
 
           <button
-            className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+            className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-sky-100"
             onClick={loadUsers}
           >
             รีเฟรช
           </button>
-          <button
-            className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 shadow-sm"
-            onClick={openCreate}
-          >
+          {/* ✅ เปลี่ยนจากชมพู -> ฟ้า */}
+          <button className={primaryBtn} onClick={openCreate}>
             เพิ่มผู้ใช้
           </button>
         </div>
@@ -435,8 +440,8 @@ export default function UsersTable() {
           </div>
         ) : (
           <>
-            {/* header row */}
-            <div className="bg-pink-50 px-6 py-3 text-sm font-medium text-gray-600 grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto]">
+            {/* ✅ header row: ชมพู -> ฟ้า */}
+            <div className="bg-sky-50 px-6 py-3 text-sm font-medium text-gray-700 grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto]">
               <div>ชื่อสมาชิก</div>
               <div>อีเมล</div>
               <div>บทบาท / ตำแหน่ง</div>
@@ -452,7 +457,7 @@ export default function UsersTable() {
                 >
                   {/* ชื่อ + ตำแหน่งย่อย */}
                   <div className="min-w-0">
-                    <div className="font-medium truncate">
+                    <div className="font-medium truncate text-gray-900">
                       {u.first_name} {u.last_name}
                     </div>
                     <div className="text-xs text-gray-500 truncate">
@@ -462,11 +467,9 @@ export default function UsersTable() {
                   </div>
 
                   {/* email */}
-                  <div className="min-w-0 truncate text-gray-800">
-                    {u.email}
-                  </div>
+                  <div className="min-w-0 truncate text-gray-800">{u.email}</div>
 
-                  {/* role + position badge */}
+                  {/* role badge */}
                   <div className="flex items-center gap-2">
                     <RoleBadge role={u.role} />
                   </div>
@@ -512,17 +515,15 @@ export default function UsersTable() {
 
               <div className="flex items-center gap-2">
                 <button
-                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-4 focus:ring-sky-100"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
                 >
                   ก่อนหน้า
                 </button>
                 <button
-                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={() =>
-                    setPage((p) => Math.min(totalPages, p + 1))
-                  }
+                  className="rounded-md border px-3 py-1 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-4 focus:ring-sky-100"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage >= totalPages}
                 >
                   ถัดไป
@@ -538,7 +539,9 @@ export default function UsersTable() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">รายละเอียดผู้ใช้งาน</h3>
+              <h3 className="text-lg font-semibold text-sky-800">
+                รายละเอียดผู้ใช้งาน
+              </h3>
               <button
                 className="rounded-full p-1 hover:bg-gray-100"
                 onClick={closeView}
@@ -579,13 +582,14 @@ export default function UsersTable() {
 
             <div className="mt-6 flex justify-end gap-2">
               <button
-                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-sky-100"
                 onClick={closeView}
               >
                 ปิด
               </button>
+              {/* ✅ ชมพู -> ฟ้า */}
               <button
-                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600"
+                className={primaryBtnSoft}
                 onClick={() => openEdit(viewing)}
               >
                 แก้ไข
@@ -600,7 +604,9 @@ export default function UsersTable() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">แก้ไขผู้ใช้งาน</h3>
+              <h3 className="text-lg font-semibold text-sky-800">
+                แก้ไขผู้ใช้งาน
+              </h3>
               <button
                 className="rounded-full p-1 hover:bg-gray-100"
                 onClick={closeEdit}
@@ -617,7 +623,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="first_name"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={editing.first_name}
                     onChange={onEditChange}
                   />
@@ -633,7 +639,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="last_name"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={editing.last_name}
                     onChange={onEditChange}
                   />
@@ -652,14 +658,12 @@ export default function UsersTable() {
                 <input
                   id="email"
                   type="email"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  className={inputBase}
                   value={editing.email}
                   onChange={onEditChange}
                 />
                 {editErrors.email && (
-                  <p className="mt-1 text-xs text-red-500">
-                    {editErrors.email}
-                  </p>
+                  <p className="mt-1 text-xs text-red-500">{editErrors.email}</p>
                 )}
               </div>
 
@@ -670,7 +674,7 @@ export default function UsersTable() {
                   </label>
                   <select
                     id="role"
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    className={inputBase}
                     value={editing.role}
                     onChange={onEditChange}
                   >
@@ -685,7 +689,7 @@ export default function UsersTable() {
                   <input
                     id="brith_date"
                     type="date"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={editing.brith_date || ""}
                     onChange={onEditChange}
                   />
@@ -699,7 +703,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="position"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={editing.position}
                     onChange={onEditChange}
                   />
@@ -710,7 +714,7 @@ export default function UsersTable() {
                   </label>
                   <select
                     id="province"
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    className={inputBase}
                     value={editing.province}
                     onChange={onEditChange}
                   >
@@ -720,10 +724,7 @@ export default function UsersTable() {
                       Object.entries(provinceGroups)
                         .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
                         .map(([region, items]) => (
-                          <optgroup
-                            key={region}
-                            label={makeRegionLabel(region)}
-                          >
+                          <optgroup key={region} label={makeRegionLabel(region)}>
                             {items.map((p) => (
                               <option
                                 key={p.ProvinceNo}
@@ -735,23 +736,22 @@ export default function UsersTable() {
                           </optgroup>
                         ))}
                   </select>
-                  {provErr && (
-                    <p className="mt-1 text-xs text-red-500">{provErr}</p>
-                  )}
+                  {provErr && <p className="mt-1 text-xs text-red-500">{provErr}</p>}
                 </div>
               </div>
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
               <button
-                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-sky-100"
                 onClick={closeEdit}
                 disabled={saving}
               >
                 ยกเลิก
               </button>
+              {/* ✅ ชมพู -> ฟ้า */}
               <button
-                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600 disabled:opacity-50"
+                className={primaryBtnSoft}
                 onClick={saveEdit}
                 disabled={saving}
               >
@@ -767,7 +767,9 @@ export default function UsersTable() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">เพิ่มผู้ใช้ใหม่</h3>
+              <h3 className="text-lg font-semibold text-sky-800">
+                เพิ่มผู้ใช้ใหม่
+              </h3>
               <button
                 className="rounded-full p-1 hover:bg-gray-100"
                 onClick={closeCreate}
@@ -784,7 +786,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="first_name"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.first_name}
                     onChange={onCreateChange}
                   />
@@ -800,7 +802,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="last_name"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.last_name}
                     onChange={onCreateChange}
                   />
@@ -819,14 +821,12 @@ export default function UsersTable() {
                 <input
                   id="email"
                   type="email"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  className={inputBase}
                   value={creating.email}
                   onChange={onCreateChange}
                 />
                 {createErrors.email && (
-                  <p className="mt-1 text-xs text-red-500">
-                    {createErrors.email}
-                  </p>
+                  <p className="mt-1 text-xs text-red-500">{createErrors.email}</p>
                 )}
               </div>
 
@@ -838,7 +838,7 @@ export default function UsersTable() {
                   <input
                     id="password"
                     type="password"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.password}
                     onChange={onCreateChange}
                   />
@@ -855,7 +855,7 @@ export default function UsersTable() {
                   <input
                     id="confirmPassword"
                     type="password"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.confirmPassword}
                     onChange={onCreateChange}
                   />
@@ -874,7 +874,7 @@ export default function UsersTable() {
                   </label>
                   <select
                     id="role"
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    className={inputBase}
                     value={creating.role}
                     onChange={onCreateChange}
                   >
@@ -889,7 +889,7 @@ export default function UsersTable() {
                   <input
                     id="brith_date"
                     type="date"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.brith_date || ""}
                     onChange={onCreateChange}
                   />
@@ -903,7 +903,7 @@ export default function UsersTable() {
                   </label>
                   <input
                     id="position"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    className={inputBase}
                     value={creating.position}
                     onChange={onCreateChange}
                   />
@@ -914,7 +914,7 @@ export default function UsersTable() {
                   </label>
                   <select
                     id="province"
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-white"
+                    className={inputBase}
                     value={creating.province}
                     onChange={onCreateChange}
                   >
@@ -924,10 +924,7 @@ export default function UsersTable() {
                       Object.entries(provinceGroups)
                         .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
                         .map(([region, items]) => (
-                          <optgroup
-                            key={region}
-                            label={makeRegionLabel(region)}
-                          >
+                          <optgroup key={region} label={makeRegionLabel(region)}>
                             {items.map((p) => (
                               <option
                                 key={p.ProvinceNo}
@@ -939,23 +936,22 @@ export default function UsersTable() {
                           </optgroup>
                         ))}
                   </select>
-                  {provErr && (
-                    <p className="mt-1 text-xs text-red-500">{provErr}</p>
-                  )}
+                  {provErr && <p className="mt-1 text-xs text-red-500">{provErr}</p>}
                 </div>
               </div>
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
               <button
-                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50"
+                className="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-sky-100"
                 onClick={closeCreate}
                 disabled={creatingBusy}
               >
                 ยกเลิก
               </button>
+              {/* ✅ ชมพู -> ฟ้า */}
               <button
-                className="rounded-md bg-pink-500 px-4 py-2 text-sm text-white hover:bg-pink-600 disabled:opacity-50"
+                className={primaryBtnSoft}
                 onClick={saveCreate}
                 disabled={creatingBusy}
               >

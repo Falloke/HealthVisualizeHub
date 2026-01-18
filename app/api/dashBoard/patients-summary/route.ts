@@ -1,6 +1,6 @@
-// app/api/dashBoard/patients-summary/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/kysely3/db";
+import { sql } from "kysely";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,16 @@ function daysInclusive(start: Date, end: Date) {
   return Math.max(1, d);
 }
 
+/** ✅ mapping คอลัมน์วันเริ่มป่วยตาม schema (ไม่แตะ DB) */
+const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
+const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim();
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
@@ -39,13 +49,8 @@ export async function GET(request: NextRequest) {
     const province = params.get("province");
 
     if (!province || !province.trim()) {
-      // คืนค่า default 200 เพื่อให้ UI ไม่พัง
       return NextResponse.json(
-        {
-          totalPatients: 0,
-          avgPatientsPerDay: 0,
-          cumulativePatients: 0,
-        },
+        { totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 },
         { status: 200 }
       );
     }
@@ -53,38 +58,35 @@ export async function GET(request: NextRequest) {
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
       return NextResponse.json(
-        {
-          totalPatients: 0,
-          avgPatientsPerDay: 0,
-          cumulativePatients: 0,
-        },
+        { totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 },
         { status: 200 }
       );
     }
 
+    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
+
     // ผู้ป่วยในช่วงวันที่
     const inRange = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.countAll().as("total_patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
+      .selectFrom("influenza_cases as ic")
+      .select([sql<number>`COUNT(*)`.as("total_patients")])
+      .where(caseDate, ">=", startDate)
+      .where(caseDate, "<=", endDate)
+      .where("ic.province_id", "=", provinceId)
       .executeTakeFirst();
 
-    const totalPatients = Number(inRange?.total_patients ?? 0);
+    const totalPatients = Number((inRange as any)?.total_patients ?? 0);
 
-    // เฉลี่ยต่อวัน (ปัดเศษเหมือนเดิมที่ใช้ ROUND)
     const days = daysInclusive(startDate, endDate);
     const avgPatientsPerDay = Math.round(totalPatients / days);
 
     // ผู้ป่วยสะสมทั้งหมด (ของจังหวัดนั้น)
     const cum = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.countAll().as("cumulative_patients")])
-      .where("province_id", "=", provinceId)
+      .selectFrom("influenza_cases as ic")
+      .select([sql<number>`COUNT(*)`.as("cumulative_patients")])
+      .where("ic.province_id", "=", provinceId)
       .executeTakeFirst();
 
-    const cumulativePatients = Number(cum?.cumulative_patients ?? 0);
+    const cumulativePatients = Number((cum as any)?.cumulative_patients ?? 0);
 
     return NextResponse.json(
       { totalPatients, avgPatientsPerDay, cumulativePatients },
@@ -92,13 +94,8 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("❌ API ERROR (patients-summary):", error);
-    // คืน default 200 เพื่อลด error ฝั่ง UI
     return NextResponse.json(
-      {
-        totalPatients: 0,
-        avgPatientsPerDay: 0,
-        cumulativePatients: 0,
-      },
+      { totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 },
       { status: 200 }
     );
   }

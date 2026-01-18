@@ -35,9 +35,9 @@ type Disease = {
 
 // สีอัตโนมัติของโรค (อิงชื่อภาษาไทยที่ฐานข้อมูลมี)
 const DISEASE_COLOR: Record<string, string> = {
-  "ไข้หวัดใหญ่": "#E89623",
-  "ไข้เลือดออก": "#EF4444",
-  "โรคฝีดาษลิง": "#8B5CF6",
+  ไข้หวัดใหญ่: "#E89623",
+  ไข้เลือดออก: "#EF4444",
+  โรคฝีดาษลิง: "#8B5CF6",
 };
 
 // ---------- helper แบ่งจังหวัดตามภูมิภาค + label เส้นยาว ----------
@@ -104,12 +104,12 @@ const SearchCreate = () => {
 
   const [formData, setFormData] = useState({
     searchName: "",
-    province: "", // optional
+    province: "",
     startDate: "",
     endDate: "",
-    disease: "", // เก็บเป็น "ชื่อไทย"
+    disease: "",
     diseaseOther: "",
-    diseaseProvince: "", // optional
+    diseaseProvince: "",
     color: "#E89623",
   });
   const [errors, setErrors] = useState<Errors>({});
@@ -174,24 +174,18 @@ const SearchCreate = () => {
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
 
-  // แปลง ZodError -> state errors
   const zodToErrors = (err: z.ZodError<unknown>) => {
     const out: Errors = {};
     err.issues.forEach((issue) => {
       const path0 = issue.path?.[0];
-      if (typeof path0 === "string") {
-        out[path0 as keyof Errors] = issue.message;
-      }
+      if (typeof path0 === "string") out[path0 as keyof Errors] = issue.message;
     });
     return out;
   };
 
   const validate = (): boolean => {
     setErrors({});
-    // ส่งเฉพาะชื่อจังหวัดเข้า schema
-    const provinceNames = provinces
-      .map((p) => p.ProvinceNameThai)
-      .filter(Boolean);
+    const provinceNames = provinces.map((p) => p.ProvinceNameThai).filter(Boolean);
     const schema = makeSearchCreateSchema(provinceNames);
     const parsed = schema.safeParse(formData);
     if (!parsed.success) {
@@ -251,7 +245,8 @@ const SearchCreate = () => {
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-white px-4 py-12">
-      <h1 className="mb-10 text-3xl font-bold text-pink-500 md:text-4xl">
+      {/* ✅ เปลี่ยนหัวข้อจากชมพู -> ฟ้า */}
+      <h1 className="mb-10 text-3xl font-bold text-sky-700 md:text-4xl">
         สร้างการค้นหา
       </h1>
 
@@ -270,7 +265,7 @@ const SearchCreate = () => {
               value={formData.searchName}
               onChange={handleChange}
               placeholder="กรุณากรอกชื่อ"
-              className={`mt-1 w-full rounded-md border p-2 ${
+              className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 ${
                 errors.searchName ? "border-red-500" : ""
               }`}
               required
@@ -280,7 +275,6 @@ const SearchCreate = () => {
             )}
           </label>
 
-          {/* เลือกจังหวัด (optional) */}
           <label className="text-sm font-medium text-gray-700">
             เลือกจังหวัด*
             <select
@@ -288,7 +282,7 @@ const SearchCreate = () => {
               value={formData.province}
               onChange={handleChange}
               disabled={provLoading || !!provErr}
-              className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
+              className="mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-gray-100"
             >
               <option value="">
                 {provLoading
@@ -314,7 +308,6 @@ const SearchCreate = () => {
             )}
           </label>
 
-          {/* ช่วงระยะเวลา */}
           <div className="text-sm font-medium text-gray-700">
             ช่วงระยะเวลา*
             <div className="mt-1 grid grid-cols-2 gap-2">
@@ -325,14 +318,12 @@ const SearchCreate = () => {
                   type="date"
                   value={formData.startDate}
                   onChange={handleChange}
-                  className={`mt-1 w-full rounded-md border p-2 ${
+                  className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 ${
                     errors.startDate ? "border-red-500" : ""
                   }`}
                 />
                 {errors.startDate && (
-                  <p className="mt-1 text-xs text-red-600">
-                    {errors.startDate}
-                  </p>
+                  <p className="mt-1 text-xs text-red-600">{errors.startDate}</p>
                 )}
               </label>
 
@@ -343,24 +334,23 @@ const SearchCreate = () => {
                   type="date"
                   value={formData.endDate}
                   onChange={handleChange}
-                  className={`mt-1 w-full rounded-md border p-2 ${
+                  className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 ${
                     errors.endDate ? "border-red-500" : ""
                   }`}
                   min={formData.startDate || undefined}
                 />
                 {errors.endDate && (
-                  <p className="mt-1 text-xs text-red-600">
-                    {errors.endDate}
-                  </p>
+                  <p className="mt-1 text-xs text-red-600">{errors.endDate}</p>
                 )}
               </label>
             </div>
           </div>
 
+          {/* ✅ เปลี่ยนปุ่มจากชมพู -> ฟ้า */}
           <button
             type="submit"
             disabled={submitting}
-            className="mt-4 self-start rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 disabled:opacity-60"
+            className="mt-4 self-start rounded-md bg-sky-600 px-4 py-2 text-white hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60"
           >
             {submitting ? "กำลังบันทึก..." : "บันทึกการสร้าง"}
           </button>
@@ -368,14 +358,13 @@ const SearchCreate = () => {
 
         {/* Right side */}
         <div className="flex flex-col gap-4">
-          {/* เลือกโรค */}
           <label className="text-sm font-medium text-gray-700">
             เลือกโรค*
             <select
               id="disease"
               value={formData.disease}
               onChange={handleChange}
-              className={`mt-1 w-full rounded-md border p-2 ${
+              className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 ${
                 errors.disease ? "border-red-500" : ""
               }`}
             >
@@ -398,7 +387,6 @@ const SearchCreate = () => {
             )}
           </label>
 
-          {/* อื่น ๆ → ต้องกรอกชื่อโรค */}
           {isOtherDisease && (
             <label className="text-sm font-medium text-gray-700">
               ชื่อโรค (กรณีเลือก “อื่น ๆ”)
@@ -408,19 +396,16 @@ const SearchCreate = () => {
                 value={formData.diseaseOther}
                 onChange={handleChange}
                 placeholder="กรุณาระบุชื่อโรค"
-                className={`mt-1 w-full rounded-md border p-2 ${
+                className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 ${
                   errors.diseaseOther ? "border-red-500" : ""
                 }`}
               />
               {errors.diseaseOther && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.diseaseOther}
-                </p>
+                <p className="mt-1 text-xs text-red-600">{errors.diseaseOther}</p>
               )}
             </label>
           )}
 
-          {/* จังหวัดของโรค (optional) */}
           <label className="text-sm font-medium text-gray-700">
             จังหวัดที่ต้องการเปรียบเทียบเลือกจังหวัดของโรค
             <select
@@ -428,7 +413,7 @@ const SearchCreate = () => {
               value={formData.diseaseProvince}
               onChange={handleChange}
               disabled={provLoading || !!provErr}
-              className="mt-1 w-full rounded-md border p-2 disabled:bg-gray-100"
+              className="mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-gray-100"
             >
               <option value="">
                 {provLoading
@@ -450,13 +435,10 @@ const SearchCreate = () => {
                   ))}
             </select>
             {errors.diseaseProvince && (
-              <p className="mt-1 text-xs text-red-600">
-                {errors.diseaseProvince}
-              </p>
+              <p className="mt-1 text-xs text-red-600">{errors.diseaseProvince}</p>
             )}
           </label>
 
-          {/* สี */}
           <div className="text-sm font-medium text-gray-700">
             สีที่ใช้แสดงผล
             <div

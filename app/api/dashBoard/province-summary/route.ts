@@ -35,6 +35,18 @@ async function resolveProvince(provinceParam: string) {
   return row ?? null;
 }
 
+/** ✅ mapping คอลัมน์วัน/วันตายตาม schema (ไม่แตะ DB) */
+const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim();
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim();
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
@@ -48,45 +60,44 @@ export async function GET(request: NextRequest) {
 
     const prov = await resolveProvince(province);
     if (!prov) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
+
+    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
+    const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
 
     // 🧮 ผู้ป่วยในช่วงวันที่
     const patientsRow = await db
-      .selectFrom("influenza_cases")
+      .selectFrom("influenza_cases as ic")
       .select([sql<number>`COUNT(*)`.as("patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
+      .where(caseDate, ">=", startDate)
+      .where(caseDate, "<=", endDate)
+      .where("ic.province_id", "=", (prov as any).province_id)
       .executeTakeFirst();
 
-    // ☠️ ผู้เสียชีวิตในช่วงวันที่
+    // ☠️ ผู้เสียชีวิตในช่วงวันที่ (นับเฉพาะแถวที่มี deathDate ไม่เป็น null)
     const deathsRow = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
+      .selectFrom("influenza_cases as ic")
+      .select([
+        sql<number>`COUNT(*) FILTER (WHERE ${deathDate} IS NOT NULL)`.as("deaths"),
+      ])
+      .where(sql<boolean>`${deathDate} IS NOT NULL`)
+      .where(deathDate, ">=", startDate)
+      .where(deathDate, "<=", endDate)
+      .where("ic.province_id", "=", (prov as any).province_id)
       .executeTakeFirst();
 
     return NextResponse.json(
       {
-        province: prov.province_name_th, // คืนชื่อจังหวัดมาตรฐาน
-        regionId: prov.region_id ?? null,
-        patients: Number(patientsRow?.patients ?? 0),
-        deaths: Number(deathsRow?.deaths ?? 0),
+        province: (prov as any).province_name_th, // คืนชื่อจังหวัดมาตรฐาน
+        regionId: (prov as any).region_id ?? null,
+        patients: Number((patientsRow as any)?.patients ?? 0),
+        deaths: Number((deathsRow as any)?.deaths ?? 0),
       },
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("❌ API ERROR (province-summary):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

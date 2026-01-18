@@ -33,7 +33,6 @@ function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
 }
 
 const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
-// รูปแบบเส้นของกรุงเทพฯ ที่ใช้เป็นมาตรฐานความยาว
 const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
 const TARGET_LEN = [...BASE_LABEL].length;
 
@@ -119,7 +118,6 @@ const Editprofile = () => {
         }
         const data: EditProfileForm = await res.json();
 
-        // set default values
         setValue("firstName", data.firstName);
         setValue("lastName", data.lastName);
         setValue("province", data.province);
@@ -178,33 +176,42 @@ const Editprofile = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-sky-100 to-white">
         กำลังโหลด...
       </div>
     );
   }
 
-  // เตรียม group จังหวัดตามภูมิภาค
   const provinceGroups = groupProvinces(provinces);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-pink-100">
-      <div className="flex w-full max-w-6xl overflow-hidden rounded-xl bg-white">
-        {/* Left Side */}
-        <div className="flex w-1/2 items-center justify-center bg-pink-100">
-          <Image
-            src="/images/editprofile.png"
-            alt="Edit Profile"
-            width={400}
-            height={400}
-          />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-sky-100 to-white px-4 py-10">
+      <div className="flex w-full max-w-6xl overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-xl">
+        {/* Left Side (เหมือนหน้า login/view profile) */}
+        <div className="relative hidden w-1/2 items-center justify-center bg-sky-500 md:flex">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 to-black/10" />
+          <div className="relative p-8">
+            <Image
+              src="/images/editprofile.png"
+              alt="Edit Profile"
+              width={420}
+              height={420}
+              className="h-auto w-auto drop-shadow-sm"
+              priority
+            />
+          </div>
         </div>
 
         {/* Right Side */}
-        <div className="w-1/2 p-10">
-          <h2 className="mb-8 text-center text-3xl font-bold text-pink-600">
-            แก้ไขโปรไฟล์
-          </h2>
+        <div className="w-full p-6 md:w-1/2 md:p-10">
+          <div className="mb-8">
+            <h2 className="text-center text-3xl font-bold text-sky-700">
+              แก้ไขโปรไฟล์
+            </h2>
+            <p className="mt-2 text-center text-sm text-slate-500">
+              ปรับข้อมูลส่วนตัวและบันทึกการเปลี่ยนแปลง
+            </p>
+          </div>
 
           <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>
             {/* ชื่อ + นามสกุล */}
@@ -239,11 +246,11 @@ const Editprofile = () => {
 
               {/* จังหวัด + วันเกิด */}
               <div>
-                <label className="text-sm font-medium text-gray-700">
+                <label className="text-sm font-medium text-slate-700">
                   จังหวัด*
                 </label>
                 <select
-                  className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:bg-slate-100"
                   disabled={provLoading || !!provErr}
                   {...register("province")}
                 >
@@ -252,15 +259,13 @@ const Editprofile = () => {
                       ? "กำลังโหลดจังหวัด..."
                       : provErr ?? "กรุณาเลือกจังหวัด"}
                   </option>
+
                   {!provLoading &&
                     !provErr &&
                     Object.entries(provinceGroups)
                       .sort(([a], [b]) => a.localeCompare(b, "th-TH"))
                       .map(([region, items]) => (
-                        <optgroup
-                          key={region}
-                          label={makeRegionLabel(region)}
-                        >
+                        <optgroup key={region} label={makeRegionLabel(region)}>
                           {items.map((p) => (
                             <option
                               key={p.ProvinceNo}
@@ -272,6 +277,7 @@ const Editprofile = () => {
                         </optgroup>
                       ))}
                 </select>
+
                 {errors.province && (
                   <p className="mt-1 text-xs text-red-500">
                     {errors.province.message}
@@ -342,6 +348,7 @@ const Editprofile = () => {
                   </p>
                 )}
               </div>
+
               <div>
                 <InputWithLabel
                   id="confirmNewPassword"
@@ -361,7 +368,7 @@ const Editprofile = () => {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-pink-500 text-white hover:bg-pink-600 disabled:opacity-60"
+              className="w-full bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
             >
               {isSubmitting ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
             </Button>
@@ -379,35 +386,30 @@ const Editprofile = () => {
         disabled={isSubmitting}
       >
         {pendingData && (
-          <div className="space-y-2 rounded-lg border p-4 text-sm">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <p>
-                <span className="font-medium">ชื่อ:</span>{" "}
-                {pendingData.firstName}
-              </p>
-              <p>
-                <span className="font-medium">นามสกุล:</span>{" "}
-                {pendingData.lastName}
+                <span className="font-medium">ชื่อ:</span> {pendingData.firstName}
               </p>
               <p>
-                <span className="font-medium">จังหวัด:</span>{" "}
-                {pendingData.province}
+                <span className="font-medium">นามสกุล:</span> {pendingData.lastName}
               </p>
               <p>
-                <span className="font-medium">วันเกิด:</span>{" "}
-                {pendingData.dob}
+                <span className="font-medium">จังหวัด:</span> {pendingData.province}
               </p>
-              <p className="col-span-2">
-                <span className="font-medium">ตำแหน่ง:</span>{" "}
-                {pendingData.position}
+              <p>
+                <span className="font-medium">วันเกิด:</span> {pendingData.dob}
               </p>
-              <p className="col-span-2">
-                <span className="font-medium">Email:</span>{" "}
-                {pendingData.email}
+              <p className="sm:col-span-2">
+                <span className="font-medium">ตำแหน่ง:</span> {pendingData.position}
+              </p>
+              <p className="sm:col-span-2 break-all">
+                <span className="font-medium">Email:</span> {pendingData.email}
               </p>
             </div>
+
             {pendingData.newPassword && (
-              <p className="text-red-500">⚠️ จะมีการเปลี่ยนรหัสผ่าน</p>
+              <p className="text-amber-600">⚠️ จะมีการเปลี่ยนรหัสผ่าน</p>
             )}
           </div>
         )}

@@ -1,13 +1,59 @@
-// E:\HealtRiskHub\app\features\main\dashBoardPage\component\NarrativeSection.tsx
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { composeAINarrativePayload } from "../composePayload.client";
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { Card, CardHeader, CardTitle, CardContent } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
+
+function LockModal({
+  open,
+  onClose,
+  onLogin,
+  onRegister,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onLogin: () => void;
+  onRegister: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      aria-modal="true"
+      role="dialog"
+    >
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-3 text-lg font-semibold text-gray-900">
+          ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
+        </div>
+
+        <div className="mb-5 text-sm text-gray-600">
+          ฟีเจอร์สร้างคำบรรยายอัตโนมัติ (AI Narrative) ใช้ได้เฉพาะสมาชิกเท่านั้น
+          โปรดเข้าสู่ระบบหรือสมัครสมาชิกก่อน
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} className="border">
+            ปิด
+          </Button>
+
+          <Button variant="secondary" onClick={onRegister}>
+            Register
+          </Button>
+
+          <Button onClick={onLogin}>Login</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function NarrativeSection() {
   const router = useRouter();
@@ -28,6 +74,15 @@ export default function NarrativeSection() {
   const abortRef = useRef<AbortController | null>(null);
 
   const { province, start_date, end_date } = useDashboardStore();
+
+  const lockHandlers = useMemo(
+    () => ({
+      close: () => setShowLockModal(false),
+      login: () => router.push("/login"),
+      register: () => router.push("/register"),
+    }),
+    [router]
+  );
 
   const scrollToNarrative = useCallback(() => {
     if (typeof document === "undefined") return;
@@ -71,7 +126,7 @@ export default function NarrativeSection() {
         throw new Error(data?.error || `AI failed (HTTP ${res.status})`);
       }
 
-      setArticle(data.content);
+      setArticle(String(data.content ?? ""));
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       const msg = e instanceof Error ? e.message : "เกิดข้อผิดพลาด";
@@ -103,15 +158,28 @@ export default function NarrativeSection() {
     };
 
     if (typeof window !== "undefined") {
-      window.addEventListener("ai:narrative:generate", onExternalGenerate as EventListener);
+      window.addEventListener(
+        "ai:narrative:generate",
+        onExternalGenerate as EventListener
+      );
     }
 
     return () => {
       if (typeof window !== "undefined") {
-        window.removeEventListener("ai:narrative:generate", onExternalGenerate as EventListener);
+        window.removeEventListener(
+          "ai:narrative:generate",
+          onExternalGenerate as EventListener
+        );
       }
     };
   }, [handleGenerate, scrollToNarrative]);
+
+  // ✅ กัน leak: unmount แล้ว abort request ที่ค้าง
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   function downloadTxt() {
     const blob = new Blob([article], { type: "text/plain;charset=utf-8" });
@@ -127,46 +195,12 @@ export default function NarrativeSection() {
   if (!visible) {
     return (
       <>
-        {/* Popup ล็อกอินยังต้องทำงานได้ (ถ้าโดนเรียกจาก event ตอนยังไม่ล็อกอิน) */}
-        {showLockModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center"
-            aria-modal="true"
-            role="dialog"
-          >
-            <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setShowLockModal(false)}
-            />
-
-            <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
-              <div className="mb-3 text-lg font-semibold text-gray-900">
-                ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
-              </div>
-
-              <div className="mb-5 text-sm text-gray-600">
-                ฟีเจอร์สร้างคำบรรยายอัตโนมัติ (AI Narrative) ใช้ได้เฉพาะสมาชิกเท่านั้น
-                โปรดเข้าสู่ระบบหรือสมัครสมาชิกก่อน
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowLockModal(false)}
-                  className="border"
-                >
-                  ปิด
-                </Button>
-
-                <Button variant="secondary" onClick={() => router.push("/register")}>
-                  Register
-                </Button>
-
-                <Button onClick={() => router.push("/login")}>Login</Button>
-              </div>
-            </div>
-          </div>
-        )}
+        <LockModal
+          open={showLockModal}
+          onClose={lockHandlers.close}
+          onLogin={lockHandlers.login}
+          onRegister={lockHandlers.register}
+        />
       </>
     );
   }
@@ -202,45 +236,12 @@ export default function NarrativeSection() {
         </CardContent>
       </Card>
 
-      {showLockModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          aria-modal="true"
-          role="dialog"
-        >
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowLockModal(false)}
-          />
-
-          <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-3 text-lg font-semibold text-gray-900">
-              ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
-            </div>
-
-            <div className="mb-5 text-sm text-gray-600">
-              ฟีเจอร์สร้างคำบรรยายอัตโนมัติ (AI Narrative) ใช้ได้เฉพาะสมาชิกเท่านั้น
-              โปรดเข้าสู่ระบบหรือสมัครสมาชิกก่อน
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => setShowLockModal(false)}
-                className="border"
-              >
-                ปิด
-              </Button>
-
-              <Button variant="secondary" onClick={() => router.push("/register")}>
-                Register
-              </Button>
-
-              <Button onClick={() => router.push("/login")}>Login</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LockModal
+        open={showLockModal}
+        onClose={lockHandlers.close}
+        onLogin={lockHandlers.login}
+        onRegister={lockHandlers.register}
+      />
     </>
   );
 }

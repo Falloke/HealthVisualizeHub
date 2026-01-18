@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/kysely3/db";
+import { sql } from "kysely";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,16 @@ function daysInclusive(start: Date, end: Date) {
   return Math.max(1, d);
 }
 
+/** ✅ mapping คอลัมน์วันตายตาม schema (ไม่แตะ DB) */
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim();
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
@@ -52,33 +63,34 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
+
     // ผู้เสียชีวิตในช่วงวันที่
     const inRange = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [
-        eb.fn.count("death_date_parsed").as("total_deaths"),
+      .selectFrom("influenza_cases as ic")
+      .select([
+        sql<number>`COUNT(*) FILTER (WHERE ${deathDate} IS NOT NULL AND ${deathDate} >= ${startDate} AND ${deathDate} <= ${endDate})`.as(
+          "total_deaths"
+        ),
       ])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
+      .where("ic.province_id", "=", provinceId)
       .executeTakeFirst();
 
-    const totalDeaths = Number(inRange?.total_deaths ?? 0);
+    const totalDeaths = Number((inRange as any)?.total_deaths ?? 0);
 
-    // เฉลี่ยต่อวัน (ปัดเศษเหมือนเดิมที่ใช้ ROUND)
     const days = daysInclusive(startDate, endDate);
     const avgDeathsPerDay = Math.round(totalDeaths / days);
 
     // ผู้เสียชีวิตสะสมทั้งหมด (ของจังหวัดนั้น)
     const cum = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.count("death_date_parsed").as("cumulative_deaths")])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
+      .selectFrom("influenza_cases as ic")
+      .select([
+        sql<number>`COUNT(*) FILTER (WHERE ${deathDate} IS NOT NULL)`.as("cumulative_deaths"),
+      ])
+      .where("ic.province_id", "=", provinceId)
       .executeTakeFirst();
 
-    const cumulativeDeaths = Number(cum?.cumulative_deaths ?? 0);
+    const cumulativeDeaths = Number((cum as any)?.cumulative_deaths ?? 0);
 
     return NextResponse.json(
       { totalDeaths, avgDeathsPerDay, cumulativeDeaths },

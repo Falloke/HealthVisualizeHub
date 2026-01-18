@@ -39,6 +39,16 @@ async function resolveProvinceId(provinceParam: string) {
   return found?.province_id ?? null;
 }
 
+/** ✅ mapping คอลัมน์วันที่ตาม schema (ไม่แตะ DB) */
+const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
+const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim(); // เช่น "date" หรือ "timestamptz"
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
@@ -53,21 +63,20 @@ export async function GET(request: NextRequest) {
 
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
+
+    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
 
     // 📍 ดึงจำนวนผู้ป่วยแยกตามอายุ (age_y) ของจังหวัดนั้น จากตาราง influenza_cases
     const rows = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(*)`.as("patients"), "age_y"])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
-      .where("age_y", "is not", null)
-      .groupBy("age_y")
+      .selectFrom("influenza_cases as ic")
+      .select([sql<number>`COUNT(*)`.as("patients"), "ic.age_y as age_y"])
+      .where(caseDate, ">=", startDate)
+      .where(caseDate, "<=", endDate)
+      .where("ic.province_id", "=", provinceId)
+      .where("ic.age_y", "is not", null)
+      .groupBy("ic.age_y")
       .execute();
 
     // 📊 Map age → group
@@ -75,11 +84,11 @@ export async function GET(request: NextRequest) {
     for (const g of ageGroups) grouped[g.label] = 0;
 
     for (const row of rows) {
-      const age = Number(row.age_y);
+      const age = Number((row as any).age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number(row.patients);
+      if (group) grouped[group.label] += Number((row as any).patients);
     }
 
     const result = Object.entries(grouped).map(([ageRange, patients]) => ({
@@ -93,9 +102,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

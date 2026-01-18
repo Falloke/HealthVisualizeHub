@@ -68,7 +68,7 @@ export default function LoginPage() {
             <input
               className="flex h-11 w-full rounded-full border border-[#CFE8FF] bg-[#F2F7FF] px-4 text-sm placeholder:text-neutral-400 focus:border-[#07A2FF] focus:outline-none focus:ring-2 focus:ring-[#07A2FF]/40"
               type="email"
-              placeholder="Adminhhhbbb@mail.com"
+              placeholder="กรอกอีเมล"
               name="email"
               required
               autoComplete="email"

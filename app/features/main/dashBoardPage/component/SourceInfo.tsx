@@ -1,4 +1,3 @@
-// app/features/main/dashBoardPage/component/SourceInfo.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -67,6 +66,7 @@ export default function SourceInfo() {
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
@@ -77,14 +77,10 @@ export default function SourceInfo() {
 
         const json: unknown = await res.json();
 
-        // รองรับทั้งรูป { items: [...] } และ [...] ตรง ๆ โดยไม่ใช้ any
-        const rowsUnknown: unknown = hasItemsEnvelope(json)
-          ? json.items
-          : json;
+        // รองรับทั้งรูป { items: [...] } และ [...] ตรง ๆ
+        const rowsUnknown: unknown = hasItemsEnvelope(json) ? json.items : json;
 
-        const next: DataSource[] = Array.isArray(rowsUnknown)
-          ? (rowsUnknown as DataSource[])
-          : [];
+        const next: DataSource[] = Array.isArray(rowsUnknown) ? (rowsUnknown as DataSource[]) : [];
 
         if (!cancelled) setItems(next);
       } catch (e) {
@@ -118,11 +114,13 @@ export default function SourceInfo() {
     <div className="text-sm text-gray-600">
       <p className="mb-2 font-semibold">แหล่งที่มาของข้อมูล :</p>
 
-      {/* ตาราง 2 คอลัมน์ ให้แต่ละแถวยึด baseline เดียวกัน */}
-      <div className="grid grid-cols-2 gap-x-10 gap-y-4">
+      {/* ✅ responsive: มือถือ 1 คอลัมน์, จอใหญ่ค่อยเป็น 2 คอลัมน์ */}
+      <div className="grid grid-cols-1 gap-y-4 md:grid-cols-2 md:gap-x-10 md:gap-y-4">
         {rows.map(([left, right], idx) => (
           <div key={idx} className="contents">
-            <div><SourceItem s={left} /></div>
+            <div>
+              <SourceItem s={left} />
+            </div>
             <div>{right ? <SourceItem s={right} /> : null}</div>
           </div>
         ))}

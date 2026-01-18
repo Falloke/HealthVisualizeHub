@@ -25,7 +25,11 @@ function fmtMMDDYYYY(iso?: string | null) {
   if (!iso) return "-";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("th-TH", { year: "numeric", month: "2-digit", day: "2-digit" });
+  return d.toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 // ป้องกันค่าสีไม่ถูกต้อง
@@ -47,7 +51,12 @@ function isAbortError(err: unknown): boolean {
   if (typeof DOMException !== "undefined" && err instanceof DOMException) {
     return err.name === "AbortError";
   }
-  return typeof err === "object" && err !== null && "name" in err && (err as { name?: unknown }).name === "AbortError";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: unknown }).name === "AbortError"
+  );
 }
 
 function toErrorMessage(err: unknown): string {
@@ -116,7 +125,9 @@ export default function SearchPanel() {
     const prev = rows;
     setRows((r) => r.filter((x) => x.id !== id));
     try {
-      const res = await fetch(`/api/saved-searches?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/saved-searches?id=${id}`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
         setRows(prev); // rollback
         let j: ApiErrorResponse | null = null;
@@ -128,105 +139,136 @@ export default function SearchPanel() {
         alert(j?.error || "ลบไม่สำเร็จ");
       }
     } catch {
-      // ✅ ไม่ประกาศตัวแปร error เพื่อไม่ให้ ESLint ฟ้อง no-unused-vars
       setRows(prev);
       alert("ลบไม่สำเร็จ");
     }
   }
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-pink-600">การค้นหาที่สร้างไว้</h2>
-        <Link
-          href="/search-template"
-          className="rounded-md bg-pink-500 px-4 py-2 text-white hover:bg-pink-600 focus:outline-none focus:ring-2 focus:ring-pink-300"
-        >
-          + สร้างการค้นหา
-        </Link>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-sky-100 to-white px-4 py-8 md:px-6">
+      <div className="mx-auto w-full max-w-6xl">
+        {/* Header */}
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-sky-700">
+              การค้นหาที่สร้างไว้
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              จัดการรายการค้นหาที่บันทึกไว้ และสร้างรายการใหม่
+            </p>
+          </div>
 
-      {loading ? (
-        <div className="rounded-xl border bg-white p-6 text-gray-600">กำลังโหลด...</div>
-      ) : err ? (
-        <div className="rounded-xl border bg-white p-6 text-red-600">
-          {err === "Unauthorized" ? "กรุณาเข้าสู่ระบบก่อน" : `เกิดข้อผิดพลาด: ${err}`}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="rounded-xl border bg-white p-6 text-gray-600">
-          ยังไม่มีรายการ — เลือกจาก{" "}
-          <Link href="/history" className="text-pink-600 underline">
-            ประวัติการค้นหา
-          </Link>{" "}
-          หรือไปที่{" "}
-          <Link href="/search-template" className="text-pink-600 underline">
-            สร้างการค้นหา
+          <Link
+            href="/search-template"
+            className="inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-white shadow-sm hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-200"
+          >
+            + สร้างการค้นหา
           </Link>
         </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border bg-white">
-          <table className="min-w-full table-fixed">
-            <thead className="bg-pink-50 text-left text-sm text-gray-600">
-              <tr>
-                <th className="w-36 px-4 py-3">วันที่ค้นหา</th>
-                <th className="px-4 py-3">ชื่อการค้นหา</th>
-                <th className="w-40 px-4 py-3">โรค</th>
-                <th className="w-64 px-4 py-3">จังหวัด</th>
-                <th className="w-56 px-4 py-3">ระยะเวลา</th>
-                <th className="w-14 px-4 py-3 text-right">ลบ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {rows.map((r) => {
-                const highlight = createdId && r.id === createdId;
-                return (
-                  <tr
-                    key={r.id}
-                    className={`hover:bg-pink-50/40 ${highlight ? "bg-pink-50" : ""}`}
-                  >
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {fmtMMDDYYYY(r.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block h-3 w-3 rounded-full"
-                          style={{ backgroundColor: rowsColorSafe(r.color) }}
-                          aria-label={`สีของการค้นหา ${r.searchName}`}
-                        />
-                        <span className="truncate font-medium text-gray-800">
-                          {r.searchName || "-"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {r.diseaseName || "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      <span className="line-clamp-1">
-                        {renderProvinces(r.province, r.provinceAlt)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {fmtMMDDYYYY(r.startDate)} - {fmtMMDDYYYY(r.endDate)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDelete(r.id)}
-                        className="inline-flex items-center justify-center rounded-full p-2 hover:bg-red-50 text-gray-600 hover:text-red-600"
-                        title="ลบรายการนี้"
-                        aria-label="ลบ"
-                      >
-                        <Icons name="Delete" size={18} />
-                      </button>
-                    </td>
+
+        {/* Content Card */}
+        {loading ? (
+          <div className="rounded-2xl border border-sky-100 bg-white p-6 text-slate-600 shadow-sm">
+            กำลังโหลด...
+          </div>
+        ) : err ? (
+          <div className="rounded-2xl border border-sky-100 bg-white p-6 text-red-600 shadow-sm">
+            {err === "Unauthorized"
+              ? "กรุณาเข้าสู่ระบบก่อน"
+              : `เกิดข้อผิดพลาด: ${err}`}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="rounded-2xl border border-sky-100 bg-white p-6 text-slate-600 shadow-sm">
+            ยังไม่มีรายการ — เลือกจาก{" "}
+            <Link href="/history" className="text-sky-700 underline">
+              ประวัติการค้นหา
+            </Link>{" "}
+            หรือไปที่{" "}
+            <Link href="/search-template" className="text-sky-700 underline">
+              สร้างการค้นหา
+            </Link>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-sky-100 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full table-fixed">
+                <thead className="bg-sky-50 text-left text-sm text-slate-600">
+                  <tr>
+                    <th className="w-36 px-4 py-3">วันที่ค้นหา</th>
+                    <th className="px-4 py-3">ชื่อการค้นหา</th>
+                    <th className="w-40 px-4 py-3">โรค</th>
+                    <th className="w-64 px-4 py-3">จังหวัด</th>
+                    <th className="w-56 px-4 py-3">ระยะเวลา</th>
+                    <th className="w-14 px-4 py-3 text-right">ลบ</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((r) => {
+                    const highlight = createdId && r.id === createdId;
+                    return (
+                      <tr
+                        key={r.id}
+                        className={[
+                          "transition-colors hover:bg-sky-50/60",
+                          highlight ? "bg-sky-50" : "",
+                        ].join(" ")}
+                      >
+                        <td className="px-4 py-3 text-sm text-slate-700">
+                          {fmtMMDDYYYY(r.createdAt)}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="inline-block h-3 w-3 rounded-full ring-1 ring-slate-200"
+                              style={{ backgroundColor: rowsColorSafe(r.color) }}
+                              aria-label={`สีของการค้นหา ${r.searchName}`}
+                            />
+                            <span className="truncate font-medium text-slate-800">
+                              {r.searchName || "-"}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-3 text-sm text-slate-700">
+                          {r.diseaseName || "-"}
+                        </td>
+
+                        <td className="px-4 py-3 text-sm text-slate-700">
+                          <span className="line-clamp-1">
+                            {renderProvinces(r.province, r.provinceAlt)}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-3 text-sm text-slate-700">
+                          {fmtMMDDYYYY(r.startDate)} - {fmtMMDDYYYY(r.endDate)}
+                        </td>
+
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            className="inline-flex items-center justify-center rounded-full p-2 text-slate-600 hover:bg-red-50 hover:text-red-600"
+                            title="ลบรายการนี้"
+                            aria-label="ลบ"
+                          >
+                            <Icons name="Delete" size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer hint (optional look-n-feel) */}
+            <div className="border-t border-slate-100 bg-white px-4 py-3 text-xs text-slate-500">
+              * แถวที่ถูกสร้างล่าสุด (ถ้ามี query id) จะถูกไฮไลต์เป็นสีฟ้าอ่อน
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

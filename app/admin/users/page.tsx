@@ -8,8 +8,7 @@ export default async function AdminUsersPage() {
   }
 
   return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-bold text-pink-600">Admin</h1>
+    <div>
       <AdminUsersFeature /> 
     </div>
   );
