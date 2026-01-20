@@ -39,6 +39,7 @@ type ImportResp =
       ok: false;
       error: string;
       errors?: ImportErrorItem[];
+      detail?: string;
     };
 
 function slugifyAscii(input: string) {
@@ -88,6 +89,46 @@ export default function DiseaseEditor({ code }: Props) {
     () => diseases.find((d) => d.code === publicTargetCode) ?? null,
     [diseases, publicTargetCode]
   );
+
+  /* ------------------------------------------------------------------
+   * ✅ โหมด Import CSV (เลือกโรค + table ปลายทาง)
+   * ------------------------------------------------------------------ */
+
+  const [importTargetCode, setImportTargetCode] = useState<string | null>(null);
+  const importTargetDisease = useMemo(
+    () => diseases.find((d) => d.code === importTargetCode) ?? null,
+    [diseases, importTargetCode]
+  );
+
+  const [importTableName, setImportTableName] = useState<string>("");
+
+  // ตั้งค่า default importTargetCode
+  useEffect(() => {
+    if (!diseases.length) return;
+
+    setImportTargetCode((prev) => {
+      if (prev && diseases.some((d) => d.code === prev)) return prev;
+      const preferred = code ? diseases.find((d) => d.code === code) : null;
+      return preferred?.code ?? diseases[0].code;
+    });
+  }, [diseases, code]);
+
+  // auto-suggest importTableName เมื่อเลือกโรค import
+  useEffect(() => {
+    if (!importTargetCode) {
+      setImportTableName("");
+      return;
+    }
+    setImportTableName((prev) => {
+      const suggested = suggestTableName(importTargetCode, importTargetDisease);
+      if (!prev) return suggested;
+
+      const looksAuto =
+        prev.startsWith("d") && prev.includes("_") && prev.length <= 40;
+
+      return looksAuto ? suggested : prev;
+    });
+  }, [importTargetCode, importTargetDisease]);
 
   /* ------------------------------------------------------------------
    * 2) ข้อมูลชื่อโรค (meta: name_th / name_en)
@@ -164,7 +205,7 @@ export default function DiseaseEditor({ code }: Props) {
   const [createOk, setCreateOk] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------
-   * 7) IMPORT CSV -> d02_test
+   * 7) IMPORT CSV -> dynamic tableName
    * ------------------------------------------------------------------ */
 
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -176,6 +217,15 @@ export default function DiseaseEditor({ code }: Props) {
   async function doImportCSV() {
     if (!importFile) return;
 
+    if (!importTargetCode) {
+      setImportErr("กรุณาเลือกรหัสโรคที่จะ Import");
+      return;
+    }
+    if (!importTableName.trim()) {
+      setImportErr("กรุณาระบุชื่อ Table ปลายทาง");
+      return;
+    }
+
     setImporting(true);
     setImportOk(null);
     setImportErr(null);
@@ -185,6 +235,10 @@ export default function DiseaseEditor({ code }: Props) {
       const fd = new FormData();
       fd.append("file", importFile);
       fd.append("skipBadRows", "true");
+
+      // ✅ ส่งข้อมูลสำคัญไป backend
+      fd.append("diseaseCode", importTargetCode);
+      fd.append("tableName", importTableName.trim());
 
       const res = await fetch("/api/admin/d02-test/import", {
         method: "POST",
@@ -225,7 +279,6 @@ export default function DiseaseEditor({ code }: Props) {
 
   /* ------------------------------------------------------------------
    * 8) ✅ สร้างตารางข้อมูลโรค (public.dXX_…)
-   *     ✅ เปลี่ยนใหม่: Dropdown เลือก diseaseCode ที่จะสร้าง table ลง public
    * ------------------------------------------------------------------ */
 
   const [publicTableName, setPublicTableName] = useState("");
@@ -239,7 +292,6 @@ export default function DiseaseEditor({ code }: Props) {
 
     setPublicTargetCode((prev) => {
       if (prev && diseases.some((d) => d.code === prev)) return prev;
-      // ถ้ามี code จาก route param ให้เลือกอันนั้นก่อน
       const preferred = code ? diseases.find((d) => d.code === code) : null;
       return preferred?.code ?? diseases[0].code;
     });
@@ -249,15 +301,16 @@ export default function DiseaseEditor({ code }: Props) {
   useEffect(() => {
     setCreateTableErr(null);
     setCreateTableOk(null);
+
     if (!publicTargetCode) {
       setPublicTableName("");
       return;
     }
+
     setPublicTableName((prev) => {
       const suggested = suggestTableName(publicTargetCode, publicTargetDisease);
       if (!prev) return suggested;
 
-      // ถ้าดูเหมือนเป็นค่า auto -> อัปเดตตามรหัสใหม่
       const looksAuto =
         prev.startsWith("d") && prev.includes("_") && prev.length <= 40;
       return looksAuto ? suggested : prev;
@@ -332,7 +385,7 @@ export default function DiseaseEditor({ code }: Props) {
   const inputBase =
     "w-full rounded border px-3 py-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
   const selectBase =
-    "min-w-[220px] rounded border px-2 py-1 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
+    "w-full rounded border px-3 py-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
   const textareaBase =
     "w-full rounded border p-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
   const primaryBtn =
@@ -382,9 +435,7 @@ export default function DiseaseEditor({ code }: Props) {
   }, []);
 
   useEffect(() => {
-    const handler = () => {
-      void loadDiseases(true);
-    };
+    const handler = () => void loadDiseases(true);
     window.addEventListener("hhub:diseases:refresh", handler);
     return () => window.removeEventListener("hhub:diseases:refresh", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -409,7 +460,6 @@ export default function DiseaseEditor({ code }: Props) {
         const j = await res.json();
         setDetailTH(j.description_th ?? "");
         setDetailEN(j.description_en ?? "");
-        setDetailErr(null);
       } catch (e) {
         setDetailErr("โหลดรายละเอียดโรคไม่สำเร็จ");
         console.error("[DiseaseEditor] load details:", getErrorMessage(e));
@@ -433,7 +483,6 @@ export default function DiseaseEditor({ code }: Props) {
         };
         setSymSelected(j.selected ?? []);
         setSymOptions(j.options ?? []);
-        setSymErr(null);
       } catch (e) {
         setSymErr("โหลดอาการโรคไม่สำเร็จ");
         console.error("[DiseaseEditor] load symptoms:", getErrorMessage(e));
@@ -459,7 +508,6 @@ export default function DiseaseEditor({ code }: Props) {
         };
         setPrevSelected((j.selected ?? []).map((x) => x.id));
         setPrevOptions(j.options ?? []);
-        setPrevErr(null);
       } catch (e) {
         setPrevErr("โหลดวิธีป้องกันไม่สำเร็จ");
         console.error("[DiseaseEditor] load preventions:", getErrorMessage(e));
@@ -551,7 +599,6 @@ export default function DiseaseEditor({ code }: Props) {
       setCurrentCode(created.code);
 
       emitRefreshDiseases();
-
       setCreateOk(`✅ สร้างโรค ${created.code} สำเร็จ (ยังไม่สร้าง table public)`);
     } catch (e) {
       setCreateErr(getErrorMessage(e) || "สร้างโรคไม่สำเร็จ");
@@ -821,30 +868,35 @@ export default function DiseaseEditor({ code }: Props) {
       {/* เลือกโรค */}
       <section className="rounded border bg-white p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <span className="text-sm font-medium text-gray-700">เลือกโรค:</span>
-            <select
-              className={selectBase}
-              value={currentCode ?? ""}
-              onChange={(e) => setCurrentCode(e.target.value || null)}
-            >
-              {!currentCode && <option value="">— เลือกโรค —</option>}
-              {diseases.map((d) => (
-                <option key={d.code} value={d.code}>
-                  {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
-                </option>
-              ))}
-            </select>
+            <div className="w-full sm:w-[320px]">
+              <select
+                className={selectBase}
+                value={currentCode ?? ""}
+                onChange={(e) => setCurrentCode(e.target.value || null)}
+              >
+                {!currentCode && <option value="">— เลือกโรค —</option>}
+                {diseases.map((d) => (
+                  <option key={d.code} value={d.code}>
+                    {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+
           {listLoading && (
             <span className="text-xs text-gray-500">กำลังโหลดรายการโรค…</span>
           )}
         </div>
+
         {listErr && (
           <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
             {listErr}
           </div>
         )}
+
         {!diseases.length && !listLoading && (
           <div className="text-sm text-gray-500">
             ยังไม่มีรหัสโรค ให้สร้างรหัสใหม่ด้านล่าง
@@ -972,7 +1024,9 @@ export default function DiseaseEditor({ code }: Props) {
       <section className="rounded border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold text-sky-800">อาการโรค</h3>
-          {symLoading && <span className="text-xs text-gray-500">กำลังโหลด…</span>}
+          {symLoading && (
+            <span className="text-xs text-gray-500">กำลังโหลด…</span>
+          )}
         </div>
 
         {symErr && (
@@ -1067,7 +1121,9 @@ export default function DiseaseEditor({ code }: Props) {
       <section className="rounded border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold text-sky-800">วิธีป้องกัน</h3>
-          {prevLoading && <span className="text-xs text-gray-500">กำลังโหลด…</span>}
+          {prevLoading && (
+            <span className="text-xs text-gray-500">กำลังโหลด…</span>
+          )}
         </div>
 
         {prevErr && (
@@ -1252,12 +1308,22 @@ export default function DiseaseEditor({ code }: Props) {
               onChange={(e) => setPublicTableName(e.target.value)}
               placeholder="เช่น d02_dengue_fever"
             />
+            <div className="mt-1 text-xs text-gray-500">
+              แนะนำ:{" "}
+              <span className="font-medium text-sky-700">
+                {publicTargetCode
+                  ? suggestTableName(publicTargetCode, publicTargetDisease)
+                  : "-"}
+              </span>
+            </div>
           </div>
 
           <button
             type="button"
             onClick={createPublicDiseaseTable}
-            disabled={createTableSaving || !publicTargetCode || !publicTableName.trim()}
+            disabled={
+              createTableSaving || !publicTargetCode || !publicTableName.trim()
+            }
             className={`${primaryBtn} w-full sm:w-auto`}
           >
             {createTableSaving ? "กำลังสร้าง…" : "สร้างตาราง"}
@@ -1266,29 +1332,153 @@ export default function DiseaseEditor({ code }: Props) {
       </section>
 
       {/* ===================== Import CSV ===================== */}
-      <section className="rounded border bg-white p-4">
-        <h3 className="mb-1 font-semibold text-sky-800">Import CSV → d02_test</h3>
+      <section className="rounded-xl border bg-white p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-sky-800">
+              Import CSV (เลือกโรค + ตารางปลายทาง)
+            </h3>
+            <p className="text-xs text-gray-500">
+              เลือกรหัสโรคก่อน แล้วระบบจะแนะนำชื่อ table ให้อัตโนมัติ
+              (แก้เองได้)
+            </p>
+          </div>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-[1fr,auto] sm:items-end">
+          {/* ✅ Badge สถานะพร้อม import */}
+          <div className="mt-2 sm:mt-0">
+            {importTargetCode && importTableName.trim() && importFile ? (
+              <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                พร้อมนำเข้า ✅
+              </span>
+            ) : (
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                ยังไม่พร้อมนำเข้า
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ✅ เลือกรหัสโรค + Table */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {/* เลือกรหัสโรค */}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              เลือกไฟล์ .csv
+              รหัสโรคที่จะ Import
             </label>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="block w-full rounded border p-2 text-sm"
+            <select
+              className={selectBase}
+              value={importTargetCode ?? ""}
               onChange={(e) => {
                 setImportOk(null);
                 setImportErr(null);
                 setImportErrors([]);
-                const f = e.target.files?.[0] ?? null;
-                setImportFile(f);
+                setImportTargetCode(e.target.value || null);
               }}
-            />
+            >
+              {!importTargetCode && (
+                <option value="">— เลือกรหัสโรค —</option>
+              )}
+              {diseases.map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
+                </option>
+              ))}
+            </select>
+
+            <p className="mt-1 text-xs text-gray-500">
+              {importTargetCode
+                ? `เลือกแล้ว: ${importTargetCode}`
+                : "กรุณาเลือกรหัสโรคก่อน"}
+            </p>
+          </div>
+
+          {/* table ปลายทาง */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              ชื่อ Table ปลายทาง
+            </label>
+
+            <div className="flex gap-2">
+              <input
+                className={inputBase}
+                value={importTableName}
+                onChange={(e) => {
+                  setImportOk(null);
+                  setImportErr(null);
+                  setImportErrors([]);
+                  setImportTableName(e.target.value);
+                }}
+                placeholder="เช่น d01_influenza"
+              />
+
+              {/* ✅ ปุ่มเติมชื่อแนะนำ */}
+              <button
+                type="button"
+                className="whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-60"
+                disabled={!importTargetCode}
+                onClick={() => {
+                  if (!importTargetCode) return;
+                  setImportTableName(
+                    suggestTableName(importTargetCode, importTargetDisease)
+                  );
+                }}
+                title="ใช้ชื่อแนะนำอัตโนมัติ"
+              >
+                ใช้ชื่อแนะนำ
+              </button>
+            </div>
+
+            <div className="mt-1 text-xs text-gray-500">
+              แนะนำ:{" "}
+              <span className="font-medium text-sky-700">
+                {importTargetCode
+                  ? suggestTableName(importTargetCode, importTargetDisease)
+                  : "-"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ✅ เลือกไฟล์ + ปุ่ม Import */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,auto] sm:items-end">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              เลือกไฟล์ .csv
+            </label>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="block w-full rounded-lg border p-2 text-sm"
+                onChange={(e) => {
+                  setImportOk(null);
+                  setImportErr(null);
+                  setImportErrors([]);
+                  const f = e.target.files?.[0] ?? null;
+                  setImportFile(f);
+                }}
+              />
+
+              {/* ✅ ปุ่มล้างไฟล์ */}
+              <button
+                type="button"
+                className="rounded-lg border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                disabled={!importFile || importing}
+                onClick={() => {
+                  setImportFile(null);
+                  setImportOk(null);
+                  setImportErr(null);
+                  setImportErrors([]);
+                }}
+              >
+                ล้างไฟล์
+              </button>
+            </div>
+
             {importFile && (
               <div className="mt-1 text-xs text-gray-500">
-                ไฟล์: {importFile.name} (
+                ไฟล์: <span className="font-medium">{importFile.name}</span> (
                 {(importFile.size / 1024 / 1024).toFixed(2)} MB)
               </div>
             )}
@@ -1297,36 +1487,59 @@ export default function DiseaseEditor({ code }: Props) {
           <button
             type="button"
             className={primaryBtn}
-            disabled={!importFile || importing}
+            disabled={
+              !importFile ||
+              importing ||
+              !importTargetCode ||
+              !importTableName.trim()
+            }
             onClick={doImportCSV}
           >
             {importing ? "กำลัง Import…" : "Import CSV"}
           </button>
         </div>
 
+        {/* ✅ result messages */}
         {importOk && (
-          <div className="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-800">
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
             ✅ {importOk}
           </div>
         )}
+
         {importErr && (
-          <div className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-700">
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             ❌ {importErr}
           </div>
         )}
 
+        {/* ✅ error list แบบอ่านง่าย */}
         {importErrors.length > 0 && (
-          <div className="mt-3 rounded border bg-gray-50 p-3">
-            <div className="mb-2 text-sm font-semibold text-gray-700">
-              ตัวอย่าง error (แสดงสูงสุด 30 รายการ)
+          <div className="mt-4 rounded-lg border bg-gray-50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-semibold text-gray-700">
+                รายการ error (แสดงสูงสุด 30 รายการ)
+              </div>
+              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-700">
+                {Math.min(importErrors.length, 30)}/{importErrors.length}
+              </span>
             </div>
-            <pre className="max-h-64 overflow-auto text-xs text-gray-700">
-              {JSON.stringify(importErrors.slice(0, 30), null, 2)}
-            </pre>
+
+            <div className="max-h-64 space-y-2 overflow-auto pr-1">
+              {importErrors.slice(0, 30).map((er, idx) => (
+                <div
+                  key={`${er.line}-${idx}`}
+                  className="rounded-md border bg-white p-2 text-xs text-gray-700"
+                >
+                  <span className="font-semibold text-red-600">
+                    บรรทัด {er.line}:
+                  </span>{" "}
+                  {er.message}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </section>
     </div>
   );
 }
- 

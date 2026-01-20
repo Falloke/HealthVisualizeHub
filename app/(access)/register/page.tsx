@@ -1,7 +1,6 @@
 "use client";
 
-import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,7 +18,6 @@ type ProvinceItem = {
 };
 
 // ---------- helper แบ่งจังหวัดเป็นภูมิภาค + label เส้นยาว ----------
-
 function groupProvinces(list: ProvinceItem[]): Record<string, ProvinceItem[]> {
   return list.reduce<Record<string, ProvinceItem[]>>((acc, p) => {
     const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
@@ -45,7 +43,6 @@ function makeRegionLabel(region: string): string {
 
   return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
 }
-
 // ----------------------------------------------------------
 
 export default function RegisterPage() {
@@ -61,12 +58,15 @@ export default function RegisterPage() {
       try {
         setProvLoading(true);
         setProvErr(null);
+
         const res = await fetch("/data/Thailand-ProvinceName.json", {
           cache: "force-cache",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const data: ProvinceItem[] = await res.json();
         if (!data.length) throw new Error("empty list");
+
         setProvinces(data);
       } catch (e) {
         console.error(e);
@@ -76,7 +76,8 @@ export default function RegisterPage() {
       }
     })();
   }, []);
-  // ----------------------------------------------------------
+
+  const provinceGroups = useMemo(() => groupProvinces(provinces), [provinces]);
 
   const {
     register,
@@ -111,8 +112,10 @@ export default function RegisterPage() {
 
   const doRegister = async () => {
     if (!pendingData) return;
+
     try {
       setLoading(true);
+
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,11 +124,13 @@ export default function RegisterPage() {
 
       if (res.status === 201) {
         const body = await res.json();
+
         const login = await signIn("credentials", {
           redirect: false,
           email: body.email,
           password: pendingData.password,
         });
+
         if (!login?.error) router.push("/");
         else console.error("Login failed:", login.error);
       } else {
@@ -137,34 +142,30 @@ export default function RegisterPage() {
     }
   };
 
-  const provinceGroups = groupProvinces(provinces);
-
   return (
     <>
-      {/* พื้นหลังฟ้าเต็มพื้นที่ระหว่าง navbar กับ footer */}
-      <div className="flex min-h-[calc(100vh-4rem-4rem)] items-center justify-center bg-[#e6f7ff] px-4 py-8">
-        {/* การ์ดสมัครสมาชิก */}
-        <div className="flex w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-lg">
-          {/* ฝั่งซ้าย: illustration (ซ่อนบนจอเล็ก) */}
-          <div className="hidden w-1/2 items-center justify-center bg-[#03a9f4] md:flex">
-            <Image
-              src="/images/register.png"
-              alt="Register"
-              width={420}
-              height={420}
-              className="h-auto w-[80%] max-w-sm"
-              priority
-            />
-          </div>
+      {/* Background */}
+      <div className="relative flex min-h-[calc(100vh-4rem-4rem)] items-center justify-center px-4 py-10">
+        {/* gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-b from-sky-50 via-blue-50 to-white" />
 
-          {/* ฝั่งขวา: ฟอร์ม */}
-          <div className="w-full p-8 md:w-1/2 md:p-10">
-            <h2 className="mb-6 text-center text-3xl font-bold text-[#0077cc]">
-              สมัครสมาชิก
-            </h2>
+        {/* Card */}
+        <div className="relative w-full max-w-3xl overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-[0_12px_40px_rgba(2,132,199,0.15)]">
+          <div className="p-6 md:p-10">
+            <div className="mb-6 text-center">
+              <h2 className="text-3xl font-bold tracking-tight text-sky-700">
+                สมัครสมาชิก
+              </h2>
+              <p className="mt-2 text-sm text-gray-500">
+                กรอกข้อมูลให้ครบถ้วนเพื่อสร้างบัญชีผู้ใช้
+              </p>
+            </div>
 
-            <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>
-              {/* ชื่อ + นามสกุล */}
+            <form
+              className="space-y-5"
+              onSubmit={handleSubmit(onSubmitPreview)}
+            >
+              {/* ชื่อ + นามสกุล + จังหวัด + วันเกิด */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <InputWithLabel
                   id="firstName"
@@ -181,13 +182,19 @@ export default function RegisterPage() {
                   {...register("lastName")}
                 />
 
-                {/* จังหวัด + วันเกิด */}
+                {/* จังหวัด */}
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     จังหวัด*
                   </label>
                   <select
-                    className="mt-1 w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
+                    className={[
+                      "mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm",
+                      "outline-none transition",
+                      "focus:border-sky-400 focus:ring-2 focus:ring-sky-100",
+                      "disabled:bg-gray-100",
+                      errors.province ? "border-red-300" : "border-gray-200",
+                    ].join(" ")}
                     disabled={provLoading || !!provErr}
                     {...register("province")}
                   >
@@ -214,6 +221,7 @@ export default function RegisterPage() {
                           </optgroup>
                         ))}
                   </select>
+
                   {errors.province && (
                     <p className="mt-1 text-xs text-red-500">
                       {errors.province.message}
@@ -234,46 +242,58 @@ export default function RegisterPage() {
               <InputWithLabel
                 id="position"
                 label="ตำแหน่ง*"
-                placeholder="กรุณากรอกตำแหน่ง"
-                containerClassName="col-span-2"
+                placeholder="เช่น นักศึกษา / เจ้าหน้าที่ / นักวิจัย"
                 error={errors.position?.message}
                 {...register("position")}
               />
 
-              {/* Email / Password */}
+              {/* Email */}
               <InputWithLabel
                 id="email"
                 label="Email*"
-                placeholder="Email"
+                placeholder="example@email.com"
                 type="email"
                 error={errors.email?.message}
                 {...register("email")}
               />
-              <InputWithLabel
-                id="password"
-                label="Password*"
-                placeholder="Password"
-                type="password"
-                error={errors.password?.message}
-                {...register("password")}
-              />
-              <InputWithLabel
-                id="confirmPassword"
-                label="ยืนยัน Password*"
-                placeholder="ยืนยัน Password"
-                type="password"
-                error={errors.confirmPassword?.message}
-                {...register("confirmPassword")}
-              />
 
-              <div className="pt-4 text-center">
+              {/* Password */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <InputWithLabel
+                  id="password"
+                  label="Password*"
+                  placeholder="อย่างน้อย 8 ตัวอักษร"
+                  type="password"
+                  error={errors.password?.message}
+                  {...register("password")}
+                />
+                <InputWithLabel
+                  id="confirmPassword"
+                  label="ยืนยัน Password*"
+                  placeholder="กรอกซ้ำอีกครั้ง"
+                  type="password"
+                  error={errors.confirmPassword?.message}
+                  {...register("confirmPassword")}
+                />
+              </div>
+
+              {/* Submit */}
+              <div className="pt-2">
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-[#03a9f4] text-white hover:bg-[#028bd3] disabled:opacity-60"
+                  className={[
+                    "w-full rounded-xl bg-sky-500 text-white",
+                    "hover:bg-sky-600 active:scale-[0.99]",
+                    "transition disabled:opacity-60",
+                  ].join(" ")}
                 >
                   {loading ? "กำลังดำเนินการ..." : "ลงทะเบียน"}
                 </Button>
+
+                <p className="mt-3 text-center text-xs text-gray-400">
+                  เมื่อกดลงทะเบียน หมายถึงคุณยอมรับเงื่อนไขการใช้งานและนโยบายความเป็นส่วนตัว
+                </p>
               </div>
             </form>
           </div>
@@ -290,30 +310,30 @@ export default function RegisterPage() {
         disabled={loading}
       >
         {pendingData && (
-          <div className="rounded-lg border p-4 text-sm">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4 text-sm">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <p>
-                <span className="font-medium">ชื่อ:</span>{" "}
+                <span className="font-medium text-gray-700">ชื่อ:</span>{" "}
                 {pendingData.firstName}
               </p>
               <p>
-                <span className="font-medium">นามสกุล:</span>{" "}
+                <span className="font-medium text-gray-700">นามสกุล:</span>{" "}
                 {pendingData.lastName}
               </p>
               <p>
-                <span className="font-medium">จังหวัด:</span>{" "}
+                <span className="font-medium text-gray-700">จังหวัด:</span>{" "}
                 {watchedProvince || pendingData.province}
               </p>
               <p>
-                <span className="font-medium">วันเกิด:</span>{" "}
+                <span className="font-medium text-gray-700">วันเกิด:</span>{" "}
                 {watchedDob || pendingData.dob}
               </p>
-              <p className="col-span-2">
-                <span className="font-medium">ตำแหน่ง:</span>{" "}
+              <p className="md:col-span-2">
+                <span className="font-medium text-gray-700">ตำแหน่ง:</span>{" "}
                 {pendingData.position}
               </p>
-              <p className="col-span-2">
-                <span className="font-medium">อีเมล:</span>{" "}
+              <p className="md:col-span-2">
+                <span className="font-medium text-gray-700">อีเมล:</span>{" "}
                 {pendingData.email}
               </p>
             </div>
