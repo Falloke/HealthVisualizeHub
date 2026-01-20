@@ -1,3 +1,4 @@
+// D:\HealtRiskHub\app\components\sidebar\SideBar.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -132,6 +133,7 @@ function SidebarInner({
       const found = diseases.find(
         (d) => d.name_th === s.diseaseName || d.code === s.diseaseName
       );
+
       if (found) setDisease(found.code, found.name_th);
       else if (s.diseaseName) setDisease("", s.diseaseName);
 
@@ -145,7 +147,9 @@ function SidebarInner({
     [diseases, router, setDateRange, setDisease, setProvince]
   );
 
-  // ✅ Generate Narrative (หน้า Dashboard/Provincial)
+  /* -----------------------------------------------------------
+   * ✅ Generate Narrative (หน้า Dashboard/Provincial)
+   * ----------------------------------------------------------- */
   const lastFireAtRef = useRef(0);
 
   const goGenerateNarrative = useCallback(() => {
@@ -175,7 +179,9 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
-  // ✅ Generate Narrative (หน้า Compare)
+  /* -----------------------------------------------------------
+   * ✅ Generate Narrative (หน้า Compare)
+   * ----------------------------------------------------------- */
   const goGenerateCompareNarrative = useCallback(() => {
     const fire = () => {
       const now = Date.now();
@@ -184,10 +190,8 @@ function SidebarInner({
 
       if (typeof window === "undefined") return;
 
-      // กันกรณี Narrative section ใน compare ถูก DeferRender แล้ว event หาย
       (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__ = now;
 
-      // ส่งทั้ง 2 ชื่อ กันพลาดว่าฝั่ง narrative ฟังอันไหนอยู่
       window.dispatchEvent(new Event("ai:compare:narrative:generate"));
       window.dispatchEvent(new Event("ai:narrative:generate"));
     };
@@ -208,6 +212,9 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
+  /* -----------------------------------------------------------
+   * ✅ โหลดจังหวัด
+   * ----------------------------------------------------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -223,26 +230,46 @@ function SidebarInner({
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/diseases", { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed to load diseases");
-        const data = (await res.json()) as { diseases: Disease[] };
-        setDiseases(data.diseases || []);
+  /* -----------------------------------------------------------
+   * ✅ โหลดโรค (รวม event refresh)
+   * ----------------------------------------------------------- */
+  const loadDiseases = useCallback(async () => {
+    try {
+      const res = await fetch("/api/diseases", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load diseases");
+      const data = (await res.json()) as { diseases: Disease[] };
+      const list = data.diseases || [];
+      setDiseases(list);
 
-        const qsDisease = searchParams.get("disease");
-        if (!diseaseCode && !qsDisease) {
-          const d01 = data.diseases.find((d) => d.code === "D01");
-          if (d01) setDisease(d01.code, d01.name_th);
-        }
-      } catch (e) {
-        console.error("Error loading diseases:", e);
+      // ✅ default ถ้ายังไม่เลือกโรค และไม่มี querystring disease
+      const qsDisease = searchParams.get("disease");
+      if (!diseaseCode && !qsDisease && list.length > 0) {
+        const d01 = list.find((d) => d.code === "D01");
+        if (d01) setDisease(d01.code, d01.name_th);
+        else setDisease(list[0].code, list[0].name_th);
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    } catch (e) {
+      console.error("Error loading diseases:", e);
+    }
+  }, [searchParams, diseaseCode, setDisease]);
 
+  useEffect(() => {
+    void loadDiseases();
+  }, [loadDiseases]);
+
+  // ✅ ฟัง event จาก DiseaseEditor เพื่อรีโหลด dropdown ทันที
+  useEffect(() => {
+    const handler = () => {
+      void loadDiseases();
+    };
+
+    window.addEventListener("hhub:diseases:refresh", handler);
+    return () => window.removeEventListener("hhub:diseases:refresh", handler);
+  }, [loadDiseases]);
+
+  /* -----------------------------------------------------------
+   * ✅ อ่าน querystring disease แล้ว setDisease
+   * ----------------------------------------------------------- */
   useEffect(() => {
     const qsDisease = searchParams.get("disease");
     if (qsDisease && diseases.length > 0) {
@@ -251,11 +278,15 @@ function SidebarInner({
     }
   }, [searchParams, diseases, setDisease]);
 
+  /* -----------------------------------------------------------
+   * ✅ โหลด saved searches
+   * ----------------------------------------------------------- */
   useEffect(() => {
     (async () => {
       try {
         setSavedLoading(true);
         setSavedErr(null);
+
         const res = await fetch("/api/saved-searches", { cache: "no-store" });
 
         if (res.status === 401) {
@@ -265,7 +296,6 @@ function SidebarInner({
         }
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
         const json = await res.json();
         setSavedSearches(json as SavedSearch[]);
       } catch (e) {
@@ -491,7 +521,7 @@ function SidebarInner({
             </div>
           )}
 
-          {/* ✅ ล่างสุดของ sidebar (ทำให้มีทั้งหน้า compare และหน้าอื่น) */}
+          {/* ล่างสุดของ sidebar */}
           <div className="mt-auto pt-3 border-t border-sky-100">
             <div className="mb-2 text-center text-xs font-medium text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ

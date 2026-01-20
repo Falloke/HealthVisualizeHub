@@ -208,9 +208,6 @@ const Editprofile = () => {
             <h2 className="text-center text-3xl font-bold text-sky-700">
               แก้ไขโปรไฟล์
             </h2>
-            <p className="mt-2 text-center text-sm text-slate-500">
-              ปรับข้อมูลส่วนตัวและบันทึกการเปลี่ยนแปลง
-            </p>
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit(onSubmitPreview)}>

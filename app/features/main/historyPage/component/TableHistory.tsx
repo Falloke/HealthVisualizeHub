@@ -78,9 +78,6 @@ export default function TableHistory() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-sky-700">ประวัติการค้นหา</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              ดูรายการค้นหาที่เคยทำ และกดเข้าไปดูรายละเอียด
-            </p>
           </div>
 
           {/* ปุ่มทางขวา: ไปหน้า “การค้นหาที่สร้างไว้” */}
@@ -192,10 +189,6 @@ export default function TableHistory() {
                 )}
               </tbody>
             </table>
-          </div>
-
-          <div className="border-t border-slate-100 bg-white px-4 py-3 text-xs text-slate-500">
-            * สามารถปรับเป็น “โหมดการ์ด” สำหรับมือถือได้ ถ้าไม่อยากเลื่อนแนวนอน
           </div>
         </div>
       </div>

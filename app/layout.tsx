@@ -22,7 +22,7 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HealthRiskHub",
+  title: "HealthVisualizeHub",
   description:
     "ระบบเว็บแอปพลิเคชันติดตาม วิเคราะห์ และนำเสนอข้อมูลโรคระบาดในระดับจังหวัดของประเทศไทย",
   icons: {

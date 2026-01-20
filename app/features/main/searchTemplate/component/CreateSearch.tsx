@@ -460,7 +460,6 @@ const SearchCreate = () => {
               </>
             ) : (
               <p className="mt-2 text-xs text-gray-500">
-                ระบบกำหนดสีให้อัตโนมัติตามโรคที่เลือก
               </p>
             )}
           </div>

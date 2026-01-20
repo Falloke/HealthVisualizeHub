@@ -61,7 +61,7 @@ export default function LoginPage() {
             เข้าสู่ระบบ
           </h2>
           <p className="mb-8 text-center text-sm text-gray-600">
-            กรุณากรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งานระบบ HealthRiskHub
+            กรุณากรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งานระบบ HealthVisualizeHub
           </p>
 
           <form className="space-y-5" onSubmit={onLogin}>
@@ -97,7 +97,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs text-gray-500">
-            HealthRiskHub — ระบบวิเคราะห์สถานการณ์โรคระดับจังหวัด
+            HealthVisualizeHub — ระบบวิเคราะห์สถานการณ์โรคระดับจังหวัด
           </p>
         </div>
       </div>

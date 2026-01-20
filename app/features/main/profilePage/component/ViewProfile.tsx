@@ -99,9 +99,6 @@ const ViewProfile = () => {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-3xl font-bold text-sky-700">โปรไฟล์ของฉัน</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                ดูข้อมูลบัญชีและจัดการโปรไฟล์ของคุณ
-              </p>
             </div>
 
             <button

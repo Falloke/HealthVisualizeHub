@@ -28,7 +28,7 @@ export default function Navbar() {
             href="/"
             className="text-2xl font-bold tracking-tight text-sky-800 hover:opacity-90"
           >
-            HealthRiskHub
+            HealthVisualizeHub
           </Link>
           <div className="hidden gap-6 text-sm font-medium text-gray-900 md:flex">
             <Link href="/" className="hover:opacity-90">

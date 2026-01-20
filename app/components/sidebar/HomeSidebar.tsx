@@ -162,9 +162,6 @@ export default function HomeSidebar() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-900">ตัวกรองข้อมูล</h3>
-            <p className="mt-1 text-xs text-slate-600">
-              เลือกโรคและช่วงเวลาเพื่อใช้กับแผนที่และกราฟในหน้าแรก
-            </p>
           </div>
 
           {/* ✅ มุมขวา: ข้อความอยู่เหนือปุ่ม */}

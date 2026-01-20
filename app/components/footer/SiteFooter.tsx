@@ -27,7 +27,7 @@ export default function SiteFooter() {
           <div className="max-w-xl">
             <Link href="/" aria-label="กลับหน้าแรก" className="inline-block">
               <h2 className="text-2xl font-extrabold tracking-tight text-sky-800 hover:opacity-90">
-                HealthRiskHub
+                HealthVisualizeHub
               </h2>
             </Link>
             <p className="mt-1 text-xs leading-5 text-gray-900">
