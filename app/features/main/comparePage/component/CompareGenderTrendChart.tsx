@@ -10,7 +10,6 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import type { TooltipProps } from "recharts";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
@@ -93,12 +92,20 @@ const CenterBottomLegend = React.memo(function CenterBottomLegend({
   );
 });
 
+/** ✅ FIX: type tooltip แบบ minimal (Recharts บางเวอร์ชัน TooltipProps ไม่มี payload ใน type) */
+type TooltipContentProps = {
+  active?: boolean;
+  payload?: Array<any>;
+  label?: any;
+};
+
 /* Tooltip: จัดให้อ่านง่าย + โทนเข้ม/อ่อนตามจังหวัด */
 const CompareTrendTooltip = React.memo(function CompareTrendTooltip({
   active,
   payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+}: TooltipContentProps): React.ReactElement | null {
   if (!active || !payload || payload.length === 0) return null;
+
   const row = payload[0]?.payload as (CombinedRow & { label_th?: string }) | undefined;
   if (!row) return null;
 
@@ -118,7 +125,10 @@ const CompareTrendTooltip = React.memo(function CompareTrendTooltip({
         if (!Number.isFinite(val)) return null;
 
         return (
-          <div key={String(p.dataKey)} className="flex items-center gap-2 text-gray-700">
+          <div
+            key={String(p.dataKey)}
+            className="flex items-center gap-2 text-gray-700"
+          >
             <span
               className="inline-block"
               style={{
@@ -179,7 +189,7 @@ type CacheEntry = { at: number; data: (CombinedRow & { label_th: string })[] };
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
 export default function CompareGenderTrendChart() {
-  const { start_date, end_date, diseaseCode } = useDashboardStore(); // ✅ เพิ่ม diseaseCode
+  const { start_date, end_date, diseaseCode } = useDashboardStore();
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<(CombinedRow & { label_th: string })[]>([]);
@@ -193,12 +203,14 @@ export default function CompareGenderTrendChart() {
 
   const requestUrl = useMemo(() => {
     if (!hasBoth) return "";
+
     const qs = new URLSearchParams();
-    qs.set("disease", diseaseCode || ""); // ✅ ส่งโรค
+    qs.set("disease", diseaseCode || "");
     qs.set("start_date", start_date || "");
     qs.set("end_date", end_date || "");
     qs.set("mainProvince", mainProvince!);
     qs.set("compareProvince", compareProvince!);
+
     return `/api/compareInfo/gender-trend?${qs.toString()}`;
   }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
@@ -244,7 +256,6 @@ export default function CompareGenderTrendChart() {
 
         const dataRaw = normalizeRows(json);
 
-        // ✅ เติม label_th + sort ตามเดือน
         const data = dataRaw
           .map((r) => ({
             ...r,
@@ -285,6 +296,7 @@ export default function CompareGenderTrendChart() {
       <h4 className="mb-1 font-bold">
         เปรียบเทียบแนวโน้มผู้ป่วยจำแนกตามเพศ (รายเดือน, หน่วย: ราย)
       </h4>
+
       <p className="mb-3 text-xs text-gray-600">
         ช่วงเวลา: {start_date || "—"} – {end_date || "—"} | จังหวัดหลัก:{" "}
         <span className="font-semibold">{mainProvince}</span> | จังหวัดเปรียบเทียบ:{" "}
@@ -301,28 +313,20 @@ export default function CompareGenderTrendChart() {
         )}
 
         {!loading && rows.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            ไม่พบข้อมูลแนวโน้มสำหรับการเปรียบเทียบ
-          </p>
+          <p className="text-sm text-gray-500">ไม่พบข้อมูลแนวโน้มสำหรับการเปรียบเทียบ</p>
         ) : (
           <ResponsiveContainer width="100%" height={340}>
-            <LineChart
-              data={rows}
-              margin={{ top: 8, right: 24, bottom: 56, left: 8 }}
-            >
+            <LineChart data={rows} margin={{ top: 8, right: 24, bottom: 56, left: 8 }}>
               <XAxis
-                dataKey="label_th" // ✅ ใช้ไทยที่คำนวณเองได้เสมอ
+                dataKey="label_th"
                 interval="preserveStartEnd"
                 tickMargin={8}
                 padding={{ left: 0, right: 18 }}
                 height={28}
               />
-              <YAxis
-                tickFormatter={TH_NUMBER}
-                tickMargin={8}
-                allowDecimals={false}
-              />
+              <YAxis tickFormatter={TH_NUMBER} tickMargin={8} allowDecimals={false} />
 
+              {/* ✅ FIX: Tooltip ใช้ component ที่ไม่พึ่ง TooltipProps */}
               <Tooltip content={<CompareTrendTooltip />} />
 
               <Legend

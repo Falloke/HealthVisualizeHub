@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import HistoryPage from "@/app/features/main/historyPage/Index";
-const HistoryPageRender = () => {
+
+export default function HistoryPageRender() {
   return (
-    <div>
+    <Suspense fallback={null}>
       <HistoryPage />
-    </div>
+    </Suspense>
   );
-};
-export default HistoryPageRender;
+}

@@ -32,7 +32,7 @@ type SavedSearch = {
 };
 
 function groupProvinces(provinces: Province[]): Record<string, Province[]> {
-  return provinces.reduce<Record<string, Province[]>>((acc, p) => {
+  return (provinces ?? []).reduce<Record<string, Province[]>>((acc, p) => {
     const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
     if (!acc[region]) acc[region] = [];
     acc[region].push(p);
@@ -109,7 +109,6 @@ function SidebarInner({
     end_date,
     setProvince,
     setDateRange,
-
     diseaseCode,
     setDisease,
   } = useDashboardStore();
@@ -327,7 +326,8 @@ function SidebarInner({
 
   const renderProvinceOptions = (groups: Record<string, Province[]>) =>
     Object.entries(groups)
-      .sort(([a, b]) => a.localeCompare(b, "th-TH"))
+      // ✅ FIX: sort ต้องเทียบ region string กับ region string เท่านั้น
+      .sort(([regionA], [regionB]) => regionA.localeCompare(regionB, "th-TH"))
       .map(([region, items]) => (
         <optgroup key={region} label={makeRegionLabel(region)}>
           {items.map((p) => (
@@ -371,7 +371,7 @@ function SidebarInner({
             </label>
 
             <select
-              value={diseaseCode}
+              value={diseaseCode ?? ""} // ✅ FIX: กัน null
               onChange={(e) => {
                 const code = e.target.value;
                 const d = diseases.find((x) => x.code === code);
@@ -395,7 +395,7 @@ function SidebarInner({
                 เลือกจังหวัด
               </label>
               <select
-                value={province}
+                value={province ?? ""} // ✅ FIX: กัน null
                 onChange={(e) => setProvince(e.target.value)}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               >
@@ -410,7 +410,7 @@ function SidebarInner({
                   เลือกจังหวัดหลัก
                 </label>
                 <select
-                  value={mainProvince}
+                  value={mainProvince ?? ""} // ✅ FIX: กัน null
                   onChange={(e) => {
                     const value = e.target.value;
                     setMainProvince(value);
@@ -428,7 +428,7 @@ function SidebarInner({
                   เลือกจังหวัดที่ต้องการเปรียบเทียบ
                 </label>
                 <select
-                  value={compareProvince}
+                  value={compareProvince ?? ""} // ✅ FIX: กัน null
                   onChange={(e) => setCompareProvince(e.target.value)}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 >
@@ -448,8 +448,8 @@ function SidebarInner({
             <div className="relative mb-2">
               <input
                 type="date"
-                value={start_date}
-                onChange={(e) => setDateRange(e.target.value, end_date)}
+                value={start_date ?? ""} // ✅ กัน undefined
+                onChange={(e) => setDateRange(e.target.value, end_date ?? "")}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               />
               <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
@@ -458,8 +458,8 @@ function SidebarInner({
             <div className="relative">
               <input
                 type="date"
-                value={end_date}
-                onChange={(e) => setDateRange(start_date, e.target.value)}
+                value={end_date ?? ""} // ✅ กัน undefined
+                onChange={(e) => setDateRange(start_date ?? "", e.target.value)}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               />
               <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
@@ -527,7 +527,7 @@ function SidebarInner({
           )}
 
           {/* ปุ่ม Generate */}
-          <div className="mt-auto pt-3 border-t border-sky-100">
+          <div className="mt-auto border-t border-sky-100 pt-3">
             <div className="mb-2 text-center text-xs font-medium text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ
             </div>

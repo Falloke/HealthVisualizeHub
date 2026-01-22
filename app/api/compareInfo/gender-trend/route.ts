@@ -118,7 +118,7 @@ async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema
   const candidates = diseaseCandidates(resolved);
   if (candidates.length === 0) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "in", candidates as any)
@@ -162,7 +162,7 @@ async function queryGenderTrend(args: {
       "month"
     );
 
-  const rows = await db
+  const rows = await (db as any)
     .withSchema(fact.schema)
     .selectFrom(`${fact.table} as ic` as any)
     .select(() => [

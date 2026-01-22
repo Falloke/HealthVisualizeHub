@@ -43,7 +43,7 @@ function isSafeIdent(s: string) {
 async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ✅ ผู้ป่วยในช่วงวันที่
-    const inRange = await db
+    const inRange = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("total_patients")])
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
     const avgPatientsPerDay = Math.round(totalPatients / days);
 
     // ✅ ผู้ป่วยสะสมทั้งหมด (ไม่จำกัดช่วงเวลา)
-    const cum = await db
+    const cum = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("cumulative_patients")])

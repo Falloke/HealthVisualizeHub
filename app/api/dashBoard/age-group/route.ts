@@ -40,7 +40,7 @@ async function resolveFactTable(diseaseCode: string) {
 
   if (!diseaseCode) return fallback;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
     const { schema, table } = await resolveFactTable(diseaseCode);
 
     // ✅ Query หลัก (dynamic table)
-    let q = db
+    let q = (db as any)
       .withSchema(schema)
       .selectFrom(`${table} as ic` as any)
       .select([

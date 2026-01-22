@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import {
   LineChart,
   Line,
@@ -11,7 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import type { TooltipProps } from "recharts";
+
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER } from "@/app/components/bargraph/GraphUtils";
 
@@ -35,13 +36,23 @@ function toThaiMonthLabel(s?: string): string {
   }
 }
 
+/* ✅ FIX: Tooltip type แบบ custom (กันชน Recharts เวอร์ชัน) */
+type AnyTooltipPayloadItem = {
+  payload?: any;
+};
+
+type TrendTooltipProps = {
+  active?: boolean;
+  payload?: AnyTooltipPayloadItem[];
+};
+
 // Tooltip แบบกำหนดเอง
 function TrendTooltip({
   active,
   payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+}: TrendTooltipProps): ReactElement | null {
   if (active && payload && payload.length) {
-    const row = payload[0].payload as any;
+    const row = payload[0]?.payload as any;
     const label = toThaiMonthLabel(row?.month);
 
     const male = Number(row?.male ?? 0);
@@ -50,6 +61,7 @@ function TrendTooltip({
     return (
       <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
         <div className="mb-1 font-medium text-gray-900">{label}</div>
+
         <div className="flex items-center gap-2 text-gray-700">
           <span
             className="inline-block h-2 w-2 rounded"
@@ -57,6 +69,7 @@ function TrendTooltip({
           />
           ชาย : <span className="font-semibold">{TH_NUMBER(male)}</span> ราย
         </div>
+
         <div className="mt-0.5 flex items-center gap-2 text-gray-700">
           <span
             className="inline-block h-2 w-2 rounded"
@@ -150,7 +163,10 @@ export default function GraphByGenderTrend() {
         <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={data} margin={{ top: 8, right: 56, bottom: 8, left: 8 }}>
+          <LineChart
+            data={data}
+            margin={{ top: 8, right: 56, bottom: 8, left: 8 }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="month_th"
@@ -158,9 +174,14 @@ export default function GraphByGenderTrend() {
               tickMargin={8}
               padding={{ left: 0, right: 28 }}
             />
-            <YAxis tickFormatter={TH_NUMBER} tickMargin={8} allowDecimals={false} />
+            <YAxis
+              tickFormatter={TH_NUMBER}
+              tickMargin={8}
+              allowDecimals={false}
+            />
             <Tooltip content={<TrendTooltip />} />
             <Legend />
+
             <Line
               type="monotone"
               dataKey="male"

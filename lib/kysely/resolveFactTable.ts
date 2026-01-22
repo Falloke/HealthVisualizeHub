@@ -38,7 +38,7 @@ export async function resolveFactTableByDisease(disease: string) {
   if (diseaseIn.length === 0) throw new Error("ไม่พบ disease code");
 
   // ✅ ดึง mapping ที่ active เท่านั้น
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["table_name", "schema_name"])
     .where("is_active", "=", true)

@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import DashBoard from "@/app/features/main/dashBoardPage/Index";
-const DashBoardPageRender = () => {
-  return <DashBoard />;
-};
-export default DashBoardPageRender;
+
+export default function DashBoardPageRender() {
+  return (
+    <Suspense fallback={null}>
+      <DashBoard />
+    </Suspense>
+  );
+}

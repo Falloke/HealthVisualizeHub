@@ -50,7 +50,7 @@ async function resolveFactTable(diseaseCode: string) {
 
   if (!diseaseCode) return fallback;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
     const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
 
     // ✅ Query นับผู้เสียชีวิตรายอายุ
-    const rows = await db
+    const rows = await (db as any)
       .withSchema(schema)
       .selectFrom(`${table} as ic` as any)
       .select([

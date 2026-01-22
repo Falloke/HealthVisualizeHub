@@ -185,7 +185,7 @@ async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema
   const candidates = diseaseCandidates(resolved);
   if (candidates.length === 0) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "in", candidates as any)
@@ -246,7 +246,7 @@ async function getPatientsCountByProvince(args: {
 
   // A) join province_id
   try {
-    const row = await db
+    const row = await (db as any)
       .selectFrom(`${FACT} as ic` as any)
       .innerJoin(`${PROV} as p` as any, "p.province_id", "ic.province_id")
       .select(sql<number>`COUNT(*)::int`.as("patients"))
@@ -263,7 +263,7 @@ async function getPatientsCountByProvince(args: {
 
   // B) fallback: ic.province
   try {
-    const row = await db
+    const row = await (db as any)
       .selectFrom(`${FACT} as ic` as any)
       .select(sql<number>`COUNT(*)::int`.as("patients"))
       .where("ic.province", "=", args.provinceNameTh as any)
@@ -278,7 +278,7 @@ async function getPatientsCountByProvince(args: {
   }
 
   // C) fallback: ic.province_name_th
-  const row = await db
+  const row = await (db as any)
     .selectFrom(`${FACT} as ic` as any)
     .select(sql<number>`COUNT(*)::int`.as("patients"))
     .where("ic.province_name_th", "=", args.provinceNameTh as any)
@@ -313,7 +313,7 @@ async function top5ByRegionId(args: {
 
   // A) join province_id
   try {
-    const rows = await db
+    const rows = await (db as any)
       .selectFrom(`${FACT} as ic` as any)
       .innerJoin(`${PROV} as p` as any, "p.province_id", "ic.province_id")
       .select([
@@ -339,7 +339,7 @@ async function top5ByRegionId(args: {
   }
 
   // B) fallback join ด้วยชื่อจังหวัด
-  const rows = await db
+  const rows = await (db as any)
     .selectFrom(`${FACT} as ic` as any)
     .innerJoin(`${PROV} as p` as any, (join: any) =>
       join.on(sql`p.province_name_th = ic.province`)

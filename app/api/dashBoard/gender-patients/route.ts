@@ -73,7 +73,7 @@ async function resolveFactTable(diseaseCodeRaw: string): Promise<{ schema: strin
   if (candidates.length === 0) return null;
 
   // 👉 เลือกตัวที่ตรงจริงก่อน เช่น D01
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active", "disease_code"])
     .where("disease_code", "in", candidates as any)
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const rows = await db
+    const rows = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

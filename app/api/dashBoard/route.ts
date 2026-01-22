@@ -54,7 +54,7 @@ async function resolveFactTable(
 ): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
     // -------------------------
     // 🩺 ผู้ป่วยช่วงวันที่
     // -------------------------
-    let patientQuery = db
+    let patientQuery = (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("total_patients")])
@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
     // -------------------------
     // 👥 ผู้ป่วยสะสมทั้งหมด (ไม่จำกัดช่วงเวลา)
     // -------------------------
-    let cumPatientQuery = db
+    let cumPatientQuery = (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("cumulative_patients")])
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
     // -------------------------
     // ☠️ ผู้เสียชีวิตช่วงวันที่
     // -------------------------
-    let deathQuery = db
+    let deathQuery = (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([
@@ -179,7 +179,7 @@ export async function GET(request: NextRequest) {
     // -------------------------
     // ☠️ ผู้เสียชีวิตสะสม (ไม่จำกัดช่วงเวลา)
     // -------------------------
-    let cumDeathQuery = db
+    let cumDeathQuery = (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

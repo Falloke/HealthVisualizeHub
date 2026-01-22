@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\features\main\comparePage\component\CompareAgeDeathsChart.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +11,6 @@ import {
   LabelList,
   Legend,
 } from "recharts";
-import type { TooltipProps } from "recharts";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
@@ -33,16 +31,24 @@ type CacheEntry = {
 const CHART_HEIGHT = 400;
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
+/** ✅ FIX: ใช้ type tooltip แบบ minimal (Recharts บางเวอร์ชัน TooltipProps ไม่มี payload) */
+type TooltipContentProps = {
+  active?: boolean;
+  payload?: Array<any>;
+  label?: any;
+};
+
 const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip({
   active,
   payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+}: TooltipContentProps): React.ReactElement | null {
   if (!active || !payload || payload.length === 0) return null;
+
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
-  const main = payload.find((p) => p.dataKey === "mainDeaths");
-  const compare = payload.find((p) => p.dataKey === "compareDeaths");
+  const main = payload.find((p) => p?.dataKey === "mainDeaths");
+  const compare = payload.find((p) => p?.dataKey === "compareDeaths");
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -50,16 +56,20 @@ const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip({
 
       {main && (
         <div className="text-gray-700">
-          {main.name} :{" "}
-          <span className="font-semibold">{TH_NUMBER(Number(main.value ?? 0))}</span>{" "}
+          {main.name ?? "จังหวัดหลัก"} :{" "}
+          <span className="font-semibold">
+            {TH_NUMBER(Number(main.value ?? 0))}
+          </span>{" "}
           ราย
         </div>
       )}
 
       {compare && (
         <div className="text-gray-700">
-          {compare.name} :{" "}
-          <span className="font-semibold">{TH_NUMBER(Number(compare.value ?? 0))}</span>{" "}
+          {compare.name ?? "จังหวัดเปรียบเทียบ"} :{" "}
+          <span className="font-semibold">
+            {TH_NUMBER(Number(compare.value ?? 0))}
+          </span>{" "}
           ราย
         </div>
       )}
@@ -97,7 +107,8 @@ function normalizeRows(input: unknown): RowMerged[] {
   if (!input || typeof input !== "object") return [];
   const obj: any = input;
   if (obj.ok === false) return [];
-  const rows = obj.rows ?? obj.data?.rows ?? obj.items ?? obj.data?.items ?? obj.data ?? null;
+  const rows =
+    obj.rows ?? obj.data?.rows ?? obj.items ?? obj.data?.items ?? obj.data ?? null;
   if (Array.isArray(rows)) return rows as RowMerged[];
   return [];
 }
@@ -110,15 +121,14 @@ function sumDeaths(rows: RowMerged[]) {
   return total;
 }
 
-/** ✅ ดึง disease จาก store แบบปลอดภัย */
-function getDiseaseFromStore(): string {
-  const s = useDashboardStore() as any;
-  return String(s?.diseaseCode ?? s?.disease ?? s?.disease_code ?? "").trim();
-}
-
 export default function CompareAgeDeathsChart() {
-  const { start_date, end_date } = useDashboardStore();
-  const disease = getDiseaseFromStore();
+  const store = useDashboardStore() as any;
+  const { start_date, end_date } = store;
+
+  // ✅ FIX: ดึงโรคจาก store แบบชัวร์ (ไม่เรียก hook ในฟังก์ชันย่อย)
+  const disease = String(
+    store?.diseaseCode ?? store?.disease ?? store?.disease_code ?? ""
+  ).trim();
 
   const { mainProvince, compareProvince } = useCompareStore();
 
@@ -277,6 +287,8 @@ export default function CompareAgeDeathsChart() {
                   interval={0}
                   tick={{ fontSize: 12, fill: "#6B7280" }}
                 />
+
+                {/* ✅ FIX: Tooltip ไม่ใช้ TooltipProps แล้ว */}
                 <Tooltip content={<AgeDeathsCompareTooltip />} />
                 {!noDeaths && <Legend wrapperStyle={{ fontSize: 12 }} />}
 

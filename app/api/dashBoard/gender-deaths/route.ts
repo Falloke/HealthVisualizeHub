@@ -45,7 +45,7 @@ function isSafeIdent(s: string) {
 async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     const compareStart = DEATH_DATE_CAST ? startYMD : startDate;
     const compareEnd = DEATH_DATE_CAST ? endYMD : endDate;
 
-    const rows = await db
+    const rows = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

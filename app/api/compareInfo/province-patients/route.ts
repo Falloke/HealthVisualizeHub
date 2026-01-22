@@ -117,7 +117,7 @@ async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema
   const candidates = diseaseCandidates(resolved);
   if (candidates.length === 0) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "in", candidates as any)
@@ -161,7 +161,7 @@ async function queryProvincePatients(opts: {
   const diseaseIn = diseaseCandidates(resolved);
   if (diseaseIn.length === 0) return { province: opts.provinceNameTh, region: null, patients: 0 };
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom(`${fq(fact.schema, fact.table)} as ic` as any)
     .select(sql<number>`COUNT(*)::int`.as("patients"))
     .where("ic.province", "=", opts.provinceNameTh)

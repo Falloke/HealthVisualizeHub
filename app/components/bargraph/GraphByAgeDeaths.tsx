@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import {
   BarChart,
   Bar,
@@ -10,11 +11,22 @@ import {
   ResponsiveContainer,
   LabelList,
 } from "recharts";
-import type { TooltipProps } from "recharts";
+
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
 
 type AgeRow = { ageRange: string; deaths: number };
+
+// ✅ FIX: สร้าง type Tooltip เอง (กัน type ของ recharts แต่ละเวอร์ชัน)
+type AnyTooltipPayloadItem = {
+  value?: number | string;
+  payload?: any;
+};
+
+type AgeDeathsTooltipProps = {
+  active?: boolean;
+  payload?: AnyTooltipPayloadItem[];
+};
 
 function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
   const r = (range || "").trim();
@@ -30,15 +42,17 @@ function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
   return r;
 }
 
+// ✅ FIX: ห้ามใช้ JSX.Element ใน return type → ใช้ ReactElement แทน
 function AgeDeathsTooltip({
   active,
   payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+}: AgeDeathsTooltipProps): ReactElement | null {
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as AgeRow | undefined;
     const range = row?.ageRange ?? "";
     const meta = getAgeLabel(range, "full");
+
     return (
       <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
         <div className="font-medium text-gray-900">
@@ -76,7 +90,6 @@ export default function GraphByAgeDeaths() {
       try {
         setLoading(true);
 
-        // ✅ ใส่ disease ไปด้วย
         const url =
           `/api/dashBoard/age-group-deaths` +
           `?start_date=${encodeURIComponent(start_date)}` +
@@ -101,7 +114,7 @@ export default function GraphByAgeDeaths() {
     return () => {
       cancelled = true;
     };
-  }, [provinceLabel, diseaseCode, start_date, end_date]); // ✅ ใส่ diseaseCode ด้วย
+  }, [provinceLabel, diseaseCode, start_date, end_date]);
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => Number(d.deaths ?? 0)))),
@@ -143,6 +156,7 @@ export default function GraphByAgeDeaths() {
               tick={{ fontSize: 12, fill: "#6B7280" }}
             />
 
+            {/* ✅ ใช้ Tooltip custom แบบไม่ผูกกับ types ของ recharts */}
             <Tooltip content={<AgeDeathsTooltip />} />
 
             <Bar

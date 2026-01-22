@@ -1,8 +1,8 @@
 // app/components/bargraph/GraphUtils.tsx
 "use client";
 
-import React from "react";
-import type { LabelProps, TooltipProps } from "recharts";
+import type { ReactElement } from "react";
+import type { LabelProps } from "recharts";
 
 /** แปลงตัวเลขแบบไทย (รองรับ string ด้วย) */
 export const TH_NUMBER = (n: number | string | null | undefined) => {
@@ -76,11 +76,22 @@ export function ValueLabelRight(props: LabelProps) {
   );
 }
 
+/* ✅ FIX: Tooltip type แบบ custom (ไม่ผูกกับ recharts type) */
+type AnyTooltipPayloadItem = {
+  value?: number | string;
+  payload?: any;
+};
+
+type BasicTooltipProps = {
+  active?: boolean;
+  payload?: AnyTooltipPayloadItem[];
+};
+
 /** Tooltip เรียบง่าย: “จำนวน : xx ราย” */
 export function CountTooltip({
   active,
   payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+}: BasicTooltipProps): ReactElement | null {
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     return (
@@ -101,11 +112,11 @@ export function ProvinceCountTooltip({
   seriesName = "จำนวน",
   labelKey = "label",
   unit = "ราย",
-}: TooltipProps<number, string> & {
+}: BasicTooltipProps & {
   seriesName?: string;
   labelKey?: string;
   unit?: string;
-}): JSX.Element | null {
+}): ReactElement | null {
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as any;

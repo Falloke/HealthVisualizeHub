@@ -33,8 +33,10 @@ function ProvincePage() {
 
   useEffect(() => {
     if (province) setProvince(province);
+
+    // ✅ FIX: setDateRange รับ string เท่านั้น ห้ามส่ง undefined
     if (start_date || end_date) {
-      setDateRange(start_date || undefined, end_date || undefined);
+      setDateRange(start_date || "", end_date || "");
     }
   }, [province, start_date, end_date, setProvince, setDateRange]);
 

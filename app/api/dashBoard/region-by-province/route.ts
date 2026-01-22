@@ -45,7 +45,7 @@ async function resolveRegionIdByName(regionNameTh: string): Promise<string | nul
   if (!name) return null;
 
   try {
-    const row = await db
+    const row = await (db as any)
       .selectFrom("regions_moph")
       .select(["region_id", "region_name_th"])
       .where(sql<boolean>`LOWER(TRIM(region_name_th)) = LOWER(TRIM(${name}))`)
@@ -77,7 +77,7 @@ async function resolveFactTable(
 ): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ✅ Top 5 ผู้ป่วยสะสมในภูมิภาคเดียวกัน
-    const topPatientsRows = await db
+    const topPatientsRows = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([
@@ -184,7 +184,7 @@ export async function GET(request: NextRequest) {
       .execute();
 
     // ✅ Top 5 ผู้เสียชีวิตสะสมในภูมิภาคเดียวกัน
-    const topDeathsRows = await db
+    const topDeathsRows = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([
@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
       .execute();
 
     // ✅ ผู้ป่วยของจังหวัดที่เลือก
-    const selectedRow = await db
+    const selectedRow = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("patients")])
@@ -216,7 +216,7 @@ export async function GET(request: NextRequest) {
     const selectedPatients = Number((selectedRow as any)?.patients ?? 0);
 
     // ✅ ดึงทั้งหมดเพื่อหา rank จริง
-    const allPatientsInRegion = await db
+    const allPatientsInRegion = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

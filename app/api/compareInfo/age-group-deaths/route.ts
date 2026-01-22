@@ -12,7 +12,17 @@ type RowMerged = {
   compareDeaths: number;
 };
 
-const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
+const AGE_ORDER = [
+  "0-4",
+  "5-9",
+  "10-14",
+  "15-19",
+  "20-24",
+  "25-44",
+  "45-59",
+  "60+",
+] as const;
+
 const AGE_SET = new Set<string>(AGE_ORDER as unknown as string[]);
 
 // ✅ CONFIG via ENV (เหมือนหน้า dashboard)
@@ -130,7 +140,7 @@ async function resolveDiseaseCode(diseaseParam: string) {
   const byCode = await db
     .selectFrom("diseases")
     .select(["code"])
-    .where("code", "in", candidates)
+    .where("code", "in", candidates as any)
     .executeTakeFirst();
 
   if ((byCode as any)?.code) return String((byCode as any).code);
@@ -140,8 +150,8 @@ async function resolveDiseaseCode(diseaseParam: string) {
     .select(["code"])
     .where((eb) =>
       eb.or([
-        eb("name_th", "in", candidates),
-        eb("name_en", "in", candidates),
+        eb("name_th", "in", candidates as any),
+        eb("name_en", "in", candidates as any),
       ])
     )
     .executeTakeFirst();
@@ -155,14 +165,21 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(String(s || "").trim());
 }
 
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
   const candidates = diseaseCandidates(resolved);
   if (candidates.length === 0) return null;
 
-  const row = await db
+  /**
+   * ✅ FIX: Kysely typing ของโปรเจกต์คุณอาจไม่ได้ declare table "disease_fact_tables"
+   * เลยทำให้ selectFrom("disease_fact_tables") โดน TS error
+   * ดังนั้นเราจะ cast เฉพาะ query นี้เป็น any
+   */
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "in", candidates as any)
@@ -214,10 +231,12 @@ async function queryAgeDeaths(args: {
   `.as("ageRange");
 
   const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
+
+  // ถ้า cast เป็น date จะ compare ด้วย string YYYY-MM-DD ได้
   const compareStart = DEATH_DATE_CAST ? startYMD : startDate;
   const compareEnd = DEATH_DATE_CAST ? endYMD : endDate;
 
-  const rows = await db
+  const rows = await (db as any)
     .withSchema(fact.schema)
     .selectFrom(`${fact.table} as ic` as any)
     .select([ageCase, sql<number>`COUNT(*)::int`.as("deaths")])
@@ -271,15 +290,27 @@ export async function GET(req: NextRequest) {
     }
 
     const [mainRows, compareRows] = await Promise.all([
-      queryAgeDeaths({ start_date, end_date, provinceNameTh: mainProvince, disease }),
-      queryAgeDeaths({ start_date, end_date, provinceNameTh: compareProvince, disease }),
+      queryAgeDeaths({
+        start_date,
+        end_date,
+        provinceNameTh: mainProvince,
+        disease,
+      }),
+      queryAgeDeaths({
+        start_date,
+        end_date,
+        provinceNameTh: compareProvince,
+        disease,
+      }),
     ]);
 
     const merged = mergeAgeData(mainRows, compareRows);
 
     return NextResponse.json(merged, {
       status: 200,
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
     });
   } catch (e: any) {
     console.error("❌ [compareInfo/age-group-deaths] error:", e);

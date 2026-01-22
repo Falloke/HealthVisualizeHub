@@ -1,7 +1,10 @@
+import { Suspense } from "react";
 import CompareInfo from "@/app/features/main/comparePage/Index";
 
-const ComparePageRender = () => {
-  return <CompareInfo />;
-};
-
-export default ComparePageRender;
+export default function ComparePageRender() {
+  return (
+    <Suspense fallback={null}>
+      <CompareInfo />
+    </Suspense>
+  );
+}

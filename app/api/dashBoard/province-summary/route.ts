@@ -39,7 +39,7 @@ async function resolveFactTable(
 ): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 🧮 ผู้ป่วยในช่วงวันที่
-    const patientsRow = await db
+    const patientsRow = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([sql<number>`COUNT(*)::int`.as("patients")])
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
       .executeTakeFirst();
 
     // ☠️ ผู้เสียชีวิตในช่วงวันที่
-    const deathsRow = await db
+    const deathsRow = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

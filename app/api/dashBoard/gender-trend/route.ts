@@ -34,7 +34,7 @@ function isSafeIdent(s: string) {
 async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
-  const row = await db
+  const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
     .where("disease_code", "=", diseaseCode)
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     // 📌 monthExpr จาก onset_date_parsed
     const monthExpr = sql<string>`TO_CHAR(ic.onset_date_parsed, 'YYYY-MM')`;
 
-    const rows = await db
+    const rows = await (db as any)
       .withSchema(fact.schema)
       .selectFrom(`${fact.table} as ic` as any)
       .select([

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth-guards";
 import db from "@/lib/kysely/db";
 
+export const runtime = "nodejs"; // ✅ กัน Prisma/bcryptjs ไปโดน Edge Runtime
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -14,6 +15,10 @@ function getErrorMessage(err: unknown): string {
   } catch {
     return "Unknown error";
   }
+}
+
+function toCleanString(v: unknown): string {
+  return String(v ?? "").trim();
 }
 
 /** GET: list diseases */
@@ -45,12 +50,12 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json().catch(() => ({}))) as {
-      code?: string;
-      name_th?: string | null;
-      name_en?: string | null;
+      code?: unknown;
+      name_th?: unknown;
+      name_en?: unknown;
     };
 
-    const rawCode = String(body.code ?? "").trim();
+    const rawCode = toCleanString(body.code);
     if (!rawCode) {
       return NextResponse.json(
         { error: "กรุณาระบุรหัสโรค (code)" },
@@ -59,8 +64,10 @@ export async function POST(request: Request) {
     }
 
     const code = rawCode.toUpperCase();
-    const name_th = (body.name_th ?? "").trim() || null;
-    const name_en = (body.name_en ?? "").trim() || null;
+
+    // ✅ ห้ามเป็น null เพื่อให้ตรง type ของ Kysely (string)
+    const name_th = toCleanString(body.name_th);
+    const name_en = toCleanString(body.name_en);
 
     const existing = await db
       .selectFrom("diseases")
@@ -77,7 +84,11 @@ export async function POST(request: Request) {
 
     const inserted = await db
       .insertInto("diseases")
-      .values({ code, name_th, name_en })
+      .values({
+        code,
+        name_th,
+        name_en,
+      })
       .returning(["code", "name_th", "name_en"])
       .executeTakeFirst();
 
@@ -98,12 +109,12 @@ export async function PUT(request: Request) {
 
   try {
     const body = (await request.json().catch(() => ({}))) as {
-      code?: string;
-      name_th?: string | null;
-      name_en?: string | null;
+      code?: unknown;
+      name_th?: unknown;
+      name_en?: unknown;
     };
 
-    const rawCode = String(body.code ?? "").trim();
+    const rawCode = toCleanString(body.code);
     if (!rawCode) {
       return NextResponse.json(
         { error: "ต้องมีรหัสโรค (code) เพื่อแก้ไข" },
@@ -112,12 +123,22 @@ export async function PUT(request: Request) {
     }
     const code = rawCode.toUpperCase();
 
-    const updateData: { name_th?: string | null; name_en?: string | null } = {};
+    // ✅ set เป็น string เสมอ (ไม่ส่ง null)
+    const updateData: { name_th?: string; name_en?: string } = {};
+
     if (body.name_th !== undefined) {
-      updateData.name_th = (body.name_th ?? "").trim() || null;
+      updateData.name_th = toCleanString(body.name_th);
     }
     if (body.name_en !== undefined) {
-      updateData.name_en = (body.name_en ?? "").trim() || null;
+      updateData.name_en = toCleanString(body.name_en);
+    }
+
+    // กันกรณีส่งมาแต่ code อย่างเดียว
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json(
+        { error: "กรุณาระบุ name_th หรือ name_en ที่ต้องการแก้ไข" },
+        { status: 422 }
+      );
     }
 
     const updated = await db
@@ -150,7 +171,7 @@ export async function DELETE(request: Request) {
   if (!gate.ok) return gate.response;
 
   const { searchParams } = new URL(request.url);
-  const code = String(searchParams.get("code") ?? "").trim().toUpperCase();
+  const code = toCleanString(searchParams.get("code")).toUpperCase();
 
   if (!code) {
     return NextResponse.json(

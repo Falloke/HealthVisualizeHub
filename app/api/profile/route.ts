@@ -4,7 +4,26 @@ import bcrypt from "bcryptjs";
 import { profileUpdateSchema } from "@/schemas/profileSchema";
 import { auth } from "@/auth";
 
-const prisma = new PrismaClient();
+export const runtime = "nodejs"; // ✅ Prisma + bcrypt ต้องเป็น Node.js runtime
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+// ✅ กันปัญหา hot reload สร้าง PrismaClient ซ้ำ (โดยเฉพาะตอน dev)
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const prisma = globalForPrisma.prisma ?? new PrismaClient();
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+function toISODateOnly(d?: Date | null) {
+  return d ? d.toISOString().split("T")[0] : "";
+}
+
+function toSafeDate(v: unknown): Date | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
 
 /** GET /api/profile */
 export async function GET() {
@@ -14,9 +33,9 @@ export async function GET() {
   }
 
   let user = null;
-  const idStr = session.user.id;
+  const idStr = (session.user as any)?.id;
 
-  // หา user จาก id ก่อน
+  // หา user จาก id ก่อน (ถ้ามี)
   if (idStr && !Number.isNaN(Number(idStr))) {
     user = await prisma.user.findUnique({
       where: { id: Number(idStr) },
@@ -62,7 +81,7 @@ export async function GET() {
     firstName: user.first_name,
     lastName: user.last_name,
     province: user.province ?? "",
-    dob: user.brith_date?.toISOString().split("T")[0] ?? "",
+    dob: toISODateOnly(user.brith_date),
     position: user.position ?? "",
     role: user.role,
   });
@@ -89,18 +108,23 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const parsedData = profileUpdateSchema.parse(body);
 
+    // ✅ schema ของคุณมี password / confirmPassword (ไม่มี newPassword)
     // hash password ถ้ามี
     let hashedPassword: string | undefined;
-    if (parsedData.newPassword && parsedData.newPassword.length > 0) {
-      hashedPassword = await bcrypt.hash(parsedData.newPassword, 10);
+    if (parsedData.password && parsedData.password.length > 0) {
+      hashedPassword = await bcrypt.hash(parsedData.password, 10);
     }
 
+    const dobDate = toSafeDate(parsedData.dob);
+
+    // ✅ updateData: เซ็ตค่าเท่าที่จำเป็น
+    // หมายเหตุ: ถ้า brith_date ใน DB ไม่ nullable ให้เอา logic null ออก แล้วบังคับให้ต้องมีวันเกิด
     const updateData: Prisma.UserUpdateInput = {
       first_name: parsedData.firstName,
       last_name: parsedData.lastName,
       province: parsedData.province,
-      brith_date: new Date(parsedData.dob),
       position: parsedData.position,
+      ...(dobDate ? { brith_date: dobDate } : {}),
       ...(hashedPassword ? { password: hashedPassword } : {}),
     };
 
@@ -127,7 +151,7 @@ export async function PUT(request: NextRequest) {
           firstName: updatedUser.first_name,
           lastName: updatedUser.last_name,
           province: updatedUser.province ?? "",
-          dob: updatedUser.brith_date?.toISOString().split("T")[0] ?? "",
+          dob: toISODateOnly(updatedUser.brith_date),
           position: updatedUser.position ?? "",
           email: updatedUser.email,
           role: updatedUser.role,

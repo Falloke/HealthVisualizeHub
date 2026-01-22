@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import {
   BarChart,
   Bar,
@@ -11,7 +12,7 @@ import {
   LabelList,
   Cell,
 } from "recharts";
-import type { TooltipProps } from "recharts";
+
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
 
@@ -57,16 +58,25 @@ function riskLegendText() {
   };
 }
 
+/* ✅ FIX: Tooltip type แบบ custom (กันชน Recharts เวอร์ชัน) */
+type AnyTooltipPayloadItem = {
+  value?: number | string;
+  payload?: any;
+};
+
+type AgeTooltipProps = {
+  active?: boolean;
+  payload?: AnyTooltipPayloadItem[];
+};
+
 /* Tooltip: ช่วงอายุ (คำอธิบาย) + จำนวน(ราย) */
-function AgeTooltip({
-  active,
-  payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+function AgeTooltip({ active, payload }: AgeTooltipProps): ReactElement | null {
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as AgeData | undefined;
     const range = row?.ageRange ?? "";
-    const meta = getAgeLabel(range);
+    const meta = getAgeLabel(range, "full");
+
     return (
       <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
         <div className="font-medium text-gray-900">
@@ -130,7 +140,7 @@ export default function GraphPatientsByAge() {
     return () => {
       cancelled = true;
     };
-  }, [provinceLabel, diseaseCode, start_date, end_date]); // ✅ ใส่ diseaseCode ด้วย
+  }, [provinceLabel, diseaseCode, start_date, end_date]);
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => Number(d.patients ?? 0)))),
@@ -195,7 +205,7 @@ export default function GraphPatientsByAge() {
                   const xx = Number(p.x ?? 0) + Number(p.width ?? 0) + 8;
                   const yy = Number(p.y ?? 0) + 14;
                   const range = data[p.index]?.ageRange ?? "";
-                  const short = getAgeLabel(range);
+                  const short = getAgeLabel(range, "short");
                   return (
                     <text x={xx} y={yy} fontSize={13} fill="#555">
                       {short} {TH_NUMBER(v)} ราย
@@ -219,6 +229,7 @@ export default function GraphPatientsByAge() {
             />
             {legend.veryHigh}
           </span>
+
           <span className="inline-flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded"
@@ -236,6 +247,7 @@ export default function GraphPatientsByAge() {
             />
             {legend.medium}
           </span>
+
           <span className="inline-flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded"

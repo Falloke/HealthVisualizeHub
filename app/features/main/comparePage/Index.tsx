@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\features\main\comparePage\Index.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -35,25 +34,34 @@ function DeferRender({
 
   useEffect(() => {
     let cancelled = false;
+
+    // ✅ FIX: ใช้ globalThis แทน window.setTimeout (กัน TS ตี window เป็น never)
     let idleId: number | null = null;
-    let tId: number | null = null;
+    let tId: ReturnType<typeof setTimeout> | null = null;
 
     const done = () => {
       if (!cancelled) setReady(true);
     };
 
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      idleId = (window as any).requestIdleCallback(done, { timeout });
+    const w = typeof window !== "undefined" ? window : undefined;
+
+    if (w && "requestIdleCallback" in w) {
+      idleId = (w as any).requestIdleCallback(done, { timeout });
     } else {
-      tId = window.setTimeout(done, 0);
+      // ✅ FIX: ไม่ใช้ window.setTimeout
+      tId = globalThis.setTimeout(done, 0);
     }
 
     return () => {
       cancelled = true;
-      if (idleId !== null && (window as any).cancelIdleCallback) {
-        (window as any).cancelIdleCallback(idleId);
+
+      if (idleId !== null && w && (w as any).cancelIdleCallback) {
+        (w as any).cancelIdleCallback(idleId);
       }
-      if (tId !== null) window.clearTimeout(tId);
+
+      if (tId !== null) {
+        globalThis.clearTimeout(tId);
+      }
     };
   }, [timeout]);
 
@@ -170,9 +178,8 @@ export default function CompareInfo() {
       {/* ✅ container เหมือนหน้า Dashboard */}
       <div className="mx-auto w-full max-w-[1920px] px-4 py-4 md:px-6 lg:px-8">
         <div className="space-y-4 md:space-y-6">
-          {/* ------------------ ส่วนหัว (เหมือน Dashboard + เพิ่มกรอบชมพู) ------------------ */}
+          {/* ------------------ ส่วนหัว ------------------ */}
           <header className="w-full">
-            {/* ✅ กล่องหัวข้อ + กรอบชมพูแบบหน้า Dashboard */}
             <div className="overflow-hidden rounded-xl bg-white p-4 shadow-sm ring-1 ring-pink-100 md:p-6">
               <div className="max-w-4xl">
                 <h1 className="text-xl font-bold leading-snug text-green-800 sm:text-2xl lg:text-3xl">
@@ -198,7 +205,8 @@ export default function CompareInfo() {
 
                 {!hasBoth && (
                   <p className="mt-1 text-xs text-gray-500">
-                    เลือกจังหวัดทั้งสองฝั่งจาก Sidebar ให้ครบ 2 จังหวัดก่อน จากนั้นกราฟเปรียบเทียบจะปรากฏด้านล่าง
+                    เลือกจังหวัดทั้งสองฝั่งจาก Sidebar ให้ครบ 2 จังหวัดก่อน
+                    จากนั้นกราฟเปรียบเทียบจะปรากฏด้านล่าง
                   </p>
                 )}
               </div>

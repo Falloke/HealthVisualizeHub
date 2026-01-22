@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\features\main\dashBoardPage\Index.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -14,6 +13,8 @@ export const dynamic = "force-dynamic";
 
 export default function DashboardPage() {
   const searchParams = useSearchParams();
+
+  // ✅ ค่าจาก query เป็น string เสมอ (ไม่มี = "")
   const start_date = searchParams.get("start_date") || "";
   const end_date = searchParams.get("end_date") || "";
   const province = searchParams.get("province") || "";
@@ -24,8 +25,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (province) setProvince(province);
+
+    // ✅ FIX: setDateRange รับ string เท่านั้น ห้ามส่ง undefined
     if (start_date || end_date) {
-      setDateRange(start_date || undefined, end_date || undefined);
+      setDateRange(start_date || "", end_date || "");
     }
 
     if (diseaseName) {
@@ -44,7 +47,15 @@ export default function DashboardPage() {
         }
       }
     }
-  }, [province, start_date, end_date, diseaseName, setProvince, setDateRange, setDisease]);
+  }, [
+    province,
+    start_date,
+    end_date,
+    diseaseName,
+    setProvince,
+    setDateRange,
+    setDisease,
+  ]);
 
   return (
     <main className="min-h-screen w-full bg-white">
