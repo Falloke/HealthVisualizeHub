@@ -1,14 +1,24 @@
 // next.config.mjs
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  /* config options here */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-  // ถ้าจะใช้ SVG เป็น React component ให้เอา comment ออก แล้วลง @svgr/webpack ก่อน:
+/** @type {import('next').NextConfig} */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const nextConfig = {
+  experimental: {
+    // ✅ บังคับให้ Next trace ไฟล์แค่ในโฟลเดอร์โปรเจกต์นี้
+    // กันไม่ให้มันไหลไป scandir โฟลเดอร์ C:\Users\Win11\Application Data
+    outputFileTracingRoot: __dirname,
+  },
+
+  // (ของเดิมคุณเก็บไว้ได้)
   // webpack: (config) => {
   //   config.module.rules.push({
   //     test: /\.svg$/i,
   //     issuer: /\.[jt]sx?$/,
-  //     use: ['@svgr/webpack'],
+  //     use: ["@svgr/webpack"],
   //   });
   //   return config;
   // },
