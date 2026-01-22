@@ -1,11 +1,20 @@
+// app/components/bargraph/GraphUtils.tsx
 "use client";
 
 import React from "react";
 import type { LabelProps, TooltipProps } from "recharts";
 
-/** แปลงตัวเลขแบบไทย */
-export const TH_NUMBER = (n: number) =>
-  Number(n).toLocaleString("th-TH", { maximumFractionDigits: 0 });
+/** แปลงตัวเลขแบบไทย (รองรับ string ด้วย) */
+export const TH_NUMBER = (n: number | string | null | undefined) => {
+  const num =
+    typeof n === "number"
+      ? n
+      : typeof n === "string"
+      ? Number(n.replace(/,/g, "").trim())
+      : 0;
+
+  return Number(num || 0).toLocaleString("th-TH", { maximumFractionDigits: 0 });
+};
 
 /** ปัดปลายแกนแบบ 1–2–5 ให้สเกล X พอดีกับข้อมูล */
 export function niceMax(n: number) {
@@ -47,12 +56,22 @@ export function VerticalProvinceTick({
 /** Label ปลายแท่งด้านขวา + หน่วย “ราย” (ใช้ร่วมกัน) */
 export function ValueLabelRight(props: LabelProps) {
   const { x, y, width, value } = props as any;
-  if (typeof value !== "number") return null;
+
+  const num =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+      ? Number(value.replace(/,/g, "").trim())
+      : 0;
+
+  if (!Number.isFinite(num)) return null;
+
   const textX = (x ?? 0) + (width ?? 0) + 8;
   const textY = (y ?? 0) + 14;
+
   return (
     <text x={textX} y={textY} fontSize={14} fill="#555">
-      {TH_NUMBER(value)} ราย
+      {TH_NUMBER(num)} ราย
     </text>
   );
 }
@@ -80,7 +99,7 @@ export function ProvinceCountTooltip({
   active,
   payload,
   seriesName = "จำนวน",
-  labelKey = "label", // ชื่อ key ที่เก็บชื่อจังหวัดใน data
+  labelKey = "label",
   unit = "ราย",
 }: TooltipProps<number, string> & {
   seriesName?: string;
@@ -91,6 +110,7 @@ export function ProvinceCountTooltip({
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as any;
     const province = row?.[labelKey] ?? row?.province ?? "";
+
     return (
       <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
         <div className="font-medium text-gray-900">{province}</div>

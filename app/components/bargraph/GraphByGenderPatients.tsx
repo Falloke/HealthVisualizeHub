@@ -81,8 +81,8 @@ function LineStyleGenderTooltip({ active, label, payload }: GenderTooltipProps) 
             className="inline-block h-2.5 w-2.5 rounded-full"
             style={{ background: "#BDBDBD" }}
           />
-          ไม่ระบุ: <span className="font-extrabold">{TH_NUMBER(unknown)}</span>{" "}
-          ราย
+          ไม่ระบุ:{" "}
+          <span className="font-extrabold">{TH_NUMBER(unknown)}</span> ราย
         </div>
       )}
     </div>
@@ -90,12 +90,15 @@ function LineStyleGenderTooltip({ active, label, payload }: GenderTooltipProps) 
 }
 
 export default function GraphByGenderPatients() {
-  const { province, start_date, end_date } = useDashboardStore();
+  const { province, start_date, end_date, diseaseCode } = useDashboardStore();
   const [data, setData] = useState<PatientsData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   const provinceLabel = (province || "").trim();
-  const titleProvinceText = provinceLabel ? `จังหวัด${provinceLabel}` : "ทุกจังหวัด";
+  const titleProvinceText = provinceLabel
+    ? `จังหวัด${provinceLabel}`
+    : "ทุกจังหวัด";
 
   useEffect(() => {
     let cancelled = false;
@@ -103,18 +106,37 @@ export default function GraphByGenderPatients() {
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/gender-patients?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-          provinceLabel
-        )}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
+        setErr(null);
+
+        // ✅ ถ้าไม่มีโรค -> ไม่ต้องยิง API (เพราะ API ต้องการ disease)
+        if (!diseaseCode || !diseaseCode.trim()) {
+          if (!cancelled) setData([]);
+          return;
+        }
+
+        const url =
+          `/api/dashBoard/gender-patients` +
+          `?start_date=${encodeURIComponent(start_date)}` +
+          `&end_date=${encodeURIComponent(end_date)}` +
+          `&province=${encodeURIComponent(provinceLabel)}` +
+          `&disease=${encodeURIComponent(diseaseCode)}`;
+
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(t || "โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
+        }
+
         const json = (await res.json()) as PatientsData[];
 
         if (cancelled) return;
         setData(Array.isArray(json) ? json : []);
-      } catch (err) {
-        console.error("❌ Fetch error (patients):", err);
-        if (!cancelled) setData([]);
+      } catch (e) {
+        console.error("❌ Fetch error (gender-patients):", e);
+        if (!cancelled) {
+          setErr("โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
+          setData([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -123,7 +145,7 @@ export default function GraphByGenderPatients() {
     return () => {
       cancelled = true;
     };
-  }, [provinceLabel, start_date, end_date]);
+  }, [provinceLabel, start_date, end_date, diseaseCode]);
 
   const xMax = useMemo(() => {
     const maxVal = Math.max(
@@ -150,6 +172,10 @@ export default function GraphByGenderPatients() {
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>
+      ) : err ? (
+        <p className="text-sm text-red-600">{err}</p>
+      ) : data.length === 0 ? (
+        <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
       ) : (
         <ResponsiveContainer width="100%" height={240}>
           <BarChart

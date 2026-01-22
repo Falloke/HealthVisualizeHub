@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type AggResp = {
   ok: boolean;
   data?: {
@@ -16,22 +19,30 @@ type AggResp = {
 };
 
 async function fetchJson(req: NextRequest, pathname: string, params: Record<string, string>) {
-  const url = new URL(pathname, req.url);
+  const url = new URL(pathname, req.nextUrl.origin);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+
   const res = await fetch(url.toString(), { cache: "no-store" });
-  const text = await res.text();
+  const text = await res.text().catch(() => "");
+
   if (!res.ok) throw new Error(text || `Fetch failed: ${pathname}`);
-  return text ? JSON.parse(text) : null;
+
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(req: NextRequest) {
   try {
     const p = req.nextUrl.searchParams;
 
-    const start_date = p.get("start_date") || "2024-01-01";
-    const end_date = p.get("end_date") || "2024-12-31";
-    const mainProvince = p.get("mainProvince") || "";
-    const compareProvince = p.get("compareProvince") || "";
+    const start_date = (p.get("start_date") || "2024-01-01").trim();
+    const end_date = (p.get("end_date") || "2024-12-31").trim();
+    const mainProvince = (p.get("mainProvince") || "").trim();
+    const compareProvince = (p.get("compareProvince") || "").trim();
+    const disease = (p.get("disease") || p.get("diseaseCode") || "D01").trim();
 
     if (!mainProvince || !compareProvince) {
       return NextResponse.json<AggResp>(
@@ -40,7 +51,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const baseParams = { start_date, end_date, mainProvince, compareProvince };
+    if (!disease) {
+      return NextResponse.json<AggResp>(
+        { ok: false, error: "ต้องระบุ disease" },
+        { status: 400 }
+      );
+    }
+
+    const baseParams = { start_date, end_date, mainProvince, compareProvince, disease };
 
     const [
       provincePatients,

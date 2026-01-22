@@ -1,78 +1,112 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+// export const dynamic = "force-dynamic";
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+function ymdToUTCStart(ymd: string) {
+  return new Date(`${ymd}T00:00:00.000Z`);
+}
+function ymdToUTCEnd(ymd: string) {
+  return new Date(`${ymd}T23:59:59.999Z`);
+}
 
-  if (/^\d+$/.test(p)) return Number(p);
+function pickDisease(params: URLSearchParams) {
+  return (
+    (params.get("disease") ||
+      params.get("diseaseCode") ||
+      params.get("disease_code") ||
+      "")!
+  ).trim();
+}
 
-  const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+function isSafeIdent(s: string) {
+  return /^[a-z0-9_]+$/i.test(s);
+}
+
+async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
+  if (!diseaseCode) return null;
+
+  const row = await db
+    .selectFrom("disease_fact_tables")
+    .select(["schema_name", "table_name", "is_active"])
+    .where("disease_code", "=", diseaseCode)
+    .where("is_active", "=", true)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
-}
+  const schema = String((row as any)?.schema_name || "").trim();
+  const table = String((row as any)?.table_name || "").trim();
 
-/** ✅ mapping คอลัมน์วันเริ่มป่วยตาม schema (ไม่แตะ DB) */
-const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
-const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim();
+  if (!schema || !table) return null;
+  if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
 
-function dateExpr(tableAlias: string, col: string, cast: string) {
-  const ref = sql.ref(`${tableAlias}.${col}`);
-  if (!cast) return ref;
-  return sql`${ref}::${sql.raw(cast)}`;
+  return { schema, table };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+    const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
+
+    const startDate = ymdToUTCStart(startYMD);
+    const endDate = ymdToUTCEnd(endYMD);
+
+    const provinceRaw = (params.get("province") || "").trim();
+    const diseaseCode = pickDisease(params);
+
+    // ✅ ไม่มี province -> คืน []
+    if (!provinceRaw) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    // ✅ ไม่มีโรค -> คืน []
+    if (!diseaseCode) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
+    const fact = await resolveFactTable(diseaseCode);
+    if (!fact) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-    // 📊 query นับผู้ป่วย grouped by เดือน + เพศ
-    // ทำให้ monthExpr อิงกับ column จริงของ schema
-    const monthExpr = sql<string>`TO_CHAR(${caseDate}, 'YYYY-MM')`;
+    // 📌 monthExpr จาก onset_date_parsed
+    const monthExpr = sql<string>`TO_CHAR(ic.onset_date_parsed, 'YYYY-MM')`;
 
     const rows = await db
-      .selectFrom("influenza_cases as ic")
+      .withSchema(fact.schema)
+      .selectFrom(`${fact.table} as ic` as any)
       .select([
         monthExpr.as("month"),
-        "ic.gender as gender",
-        sql<number>`COUNT(*)`.as("count"),
+        sql<string>`ic.gender`.as("gender"),
+        sql<number>`COUNT(*)::int`.as("count"),
       ])
-      .where(caseDate, ">=", startDate)
-      .where(caseDate, "<=", endDate)
-      .where("ic.province_id", "=", provinceId)
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceRaw)
+      .where("ic.disease_code", "=", diseaseCode)
       .groupBy(monthExpr)
-      .groupBy("ic.gender")
+      .groupBy(sql`ic.gender`)
       .orderBy(monthExpr)
       .execute();
 
-    // แปลงเป็น { month, male, female }
     const monthlyData: Record<string, { male: number; female: number }> = {};
 
     for (const r of rows as any[]) {
@@ -80,8 +114,11 @@ export async function GET(request: NextRequest) {
       if (!monthlyData[month]) monthlyData[month] = { male: 0, female: 0 };
 
       const g = String(r.gender ?? "").trim().toLowerCase();
-      if (g === "m" || g === "male" || g === "ชาย") monthlyData[month].male += Number(r.count);
-      else if (g === "f" || g === "female" || g === "หญิง") monthlyData[month].female += Number(r.count);
+      if (g === "m" || g === "male" || g === "ชาย") {
+        monthlyData[month].male += Number(r.count || 0);
+      } else if (g === "f" || g === "female" || g === "หญิง") {
+        monthlyData[month].female += Number(r.count || 0);
+      }
     }
 
     const result = Object.keys(monthlyData)
@@ -92,9 +129,15 @@ export async function GET(request: NextRequest) {
         female: monthlyData[m].female,
       }));
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("❌ API ERROR (gender-trend):", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json([], {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }

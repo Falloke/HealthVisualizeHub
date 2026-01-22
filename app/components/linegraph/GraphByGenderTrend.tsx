@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphByGenderTrend.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -17,7 +16,7 @@ import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER } from "@/app/components/bargraph/GraphUtils";
 
 type TrendData = {
-  month: string; // คาดว่าเป็น "YYYY-MM" หรือ "YYYY-MM-DD"
+  month: string; // "YYYY-MM" หรือ "YYYY-MM-DD"
   male: number;
   female: number;
 };
@@ -25,20 +24,18 @@ type TrendData = {
 // แปลงสตริงเดือน -> ป้ายเดือนภาษาไทย (ม.ค. 2567)
 function toThaiMonthLabel(s?: string): string {
   if (!s) return "";
-  // รองรับ "YYYY-MM", "YYYY/MM", "YYYY-MM-DD"
   const m = s.match(/^(\d{4})[-/](\d{1,2})(?:[-/]\d{1,2})?$/);
   try {
     const y = m ? Number(m[1]) : new Date(s).getFullYear();
     const mo = m ? Number(m[2]) - 1 : new Date(s).getMonth();
     const d = new Date(y, mo, 1);
-    // locale 'th-TH' จะแสดงปี พ.ศ. อัตโนมัติ
     return d.toLocaleString("th-TH", { month: "short", year: "numeric" });
   } catch {
     return s;
   }
 }
 
-// Tooltip แบบกำหนดเอง (ใส่ “ราย” และเดือนภาษาไทย)
+// Tooltip แบบกำหนดเอง
 function TrendTooltip({
   active,
   payload,
@@ -74,30 +71,58 @@ function TrendTooltip({
 }
 
 export default function GraphByGenderTrend() {
-  const { province, start_date, end_date } = useDashboardStore();
+  const { province, start_date, end_date, diseaseCode } = useDashboardStore();
   const [raw, setRaw] = useState<TrendData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/gender-trend?start_date=${start_date}&end_date=${end_date}&province=${province}`;
-        const res = await fetch(url);
+        setErr(null);
+
+        // ✅ ต้องมีจังหวัด + โรค
+        if (!province || !province.trim()) {
+          if (!cancelled) setRaw([]);
+          return;
+        }
+        if (!diseaseCode || !diseaseCode.trim()) {
+          if (!cancelled) setRaw([]);
+          return;
+        }
+
+        const url =
+          `/api/dashBoard/gender-trend` +
+          `?start_date=${encodeURIComponent(start_date || "")}` +
+          `&end_date=${encodeURIComponent(end_date || "")}` +
+          `&province=${encodeURIComponent(province)}` +
+          `&disease=${encodeURIComponent(diseaseCode)}`;
+
+        const res = await fetch(url, { cache: "no-store" });
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลแนวโน้มไม่สำเร็จ");
+
         const json = text ? (JSON.parse(text) as TrendData[]) : [];
-        setRaw(json ?? []);
-      } catch (err) {
-        console.error("❌ Fetch error (gender-trend):", err);
-        setRaw([]);
+        if (!cancelled) setRaw(Array.isArray(json) ? json : []);
+      } catch (e) {
+        console.error("❌ Fetch error (gender-trend):", e);
+        if (!cancelled) {
+          setErr("โหลดข้อมูลไม่สำเร็จ");
+          setRaw([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [province, start_date, end_date]);
 
-  // เติมฟิลด์เดือนภาษาไทยไว้ในชุดข้อมูลเลย จะได้ใช้ซ้ำทั้งแกน X และ tooltip
+    return () => {
+      cancelled = true;
+    };
+  }, [province, start_date, end_date, diseaseCode]);
+
   const data = useMemo(
     () =>
       (raw ?? []).map((r) => ({
@@ -109,31 +134,31 @@ export default function GraphByGenderTrend() {
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      {/* ใส่หน่วยที่ชื่อกราฟตามที่ขอ */}
       <h4 className="mb-2 font-bold">
-        จำนวนผู้ป่วยจำแนกตามเพศ (รายเดือน, หน่วย: ราย) — {province}
+        จำนวนผู้ป่วยจำแนกตามเพศ (รายเดือน, หน่วย: ราย) — {province || "—"}
       </h4>
 
-      {loading ? (
+      {!province || !province.trim() ? (
+        <p className="text-sm text-gray-500">โปรดเลือกจังหวัดก่อน</p>
+      ) : !diseaseCode || !diseaseCode.trim() ? (
+        <p className="text-sm text-gray-500">โปรดเลือกโรคก่อน</p>
+      ) : loading ? (
         <p>⏳ กำลังโหลด...</p>
+      ) : err ? (
+        <p className="text-sm text-red-600">{err}</p>
+      ) : data.length === 0 ? (
+        <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
       ) : (
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart
-            data={data}
-            margin={{ top: 8, right: 56, bottom: 8, left: 8 }}
-          >
+          <LineChart data={data} margin={{ top: 8, right: 56, bottom: 8, left: 8 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="month_th"
-              interval="preserveStartEnd" // โชว์หัว-ท้ายแน่ ๆ
+              interval="preserveStartEnd"
               tickMargin={8}
-              padding={{ left: 0, right: 28 }} // กันค่ายื่นขอบขวา
+              padding={{ left: 0, right: 28 }}
             />
-            <YAxis
-              tickFormatter={TH_NUMBER}
-              tickMargin={8}
-              allowDecimals={false}
-            />
+            <YAxis tickFormatter={TH_NUMBER} tickMargin={8} allowDecimals={false} />
             <Tooltip content={<TrendTooltip />} />
             <Legend />
             <Line

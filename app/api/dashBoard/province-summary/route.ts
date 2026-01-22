@@ -1,96 +1,128 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+// ----------------------
+// ✅ Helpers (YMD + UTC)
+// ----------------------
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
-async function resolveProvince(provinceParam: string) {
-  const p = provinceParam.trim();
+function ymdToUTCStart(ymd: string) {
+  return new Date(`${ymd}T00:00:00.000Z`);
+}
+function ymdToUTCEnd(ymd: string) {
+  return new Date(`${ymd}T23:59:59.999Z`);
+}
 
-  // ส่งเป็นเลข -> province_id
-  if (/^\d+$/.test(p)) {
-    const row = await db
-      .selectFrom("provinces")
-      .select(["province_id", "province_name_th", "region_id"])
-      .where("province_id", "=", Number(p))
-      .executeTakeFirst();
-    return row ?? null;
-  }
+function pickDisease(params: URLSearchParams) {
+  return (
+    (params.get("disease") ||
+      params.get("diseaseCode") ||
+      params.get("disease_code") ||
+      "")!
+  ).trim();
+}
 
-  // ส่งเป็นชื่อไทย -> map เป็น province_id
+function isSafeIdent(s: string) {
+  return /^[a-z0-9_]+$/i.test(s);
+}
+
+async function resolveFactTable(
+  diseaseCode: string
+): Promise<{ schema: string; table: string } | null> {
+  if (!diseaseCode) return null;
+
   const row = await db
-    .selectFrom("provinces")
-    .select(["province_id", "province_name_th", "region_id"])
-    .where("province_name_th", "=", p)
+    .selectFrom("disease_fact_tables")
+    .select(["schema_name", "table_name", "is_active"])
+    .where("disease_code", "=", diseaseCode)
+    .where("is_active", "=", true)
     .executeTakeFirst();
 
-  return row ?? null;
-}
+  const schema = String((row as any)?.schema_name || "").trim();
+  const table = String((row as any)?.table_name || "").trim();
 
-/** ✅ mapping คอลัมน์วัน/วันตายตาม schema (ไม่แตะ DB) */
-const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
-const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
-const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim();
-const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim();
+  if (!schema || !table) return null;
+  if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
 
-function dateExpr(tableAlias: string, col: string, cast: string) {
-  const ref = sql.ref(`${tableAlias}.${col}`);
-  if (!cast) return ref;
-  return sql`${ref}::${sql.raw(cast)}`;
+  return { schema, table };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(p.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(p.get("end_date"), "2024-12-31");
-    const province = p.get("province")?.trim();
 
+    const startYMD = parseYMDOrFallback(p.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(p.get("end_date"), "2024-12-31");
+
+    const startDate = ymdToUTCStart(startYMD);
+    const endDate = ymdToUTCEnd(endYMD);
+
+    const province = (p.get("province") || "").trim();
+    const disease = pickDisease(p);
+
+    // ✅ ถ้าไม่มีจังหวัด -> คืนค่า 0 (กันกราฟพัง)
     if (!province) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+      return NextResponse.json(
+        { province: "", regionId: null, patients: 0, deaths: 0 },
+        { status: 200 }
+      );
     }
 
-    const prov = await resolveProvince(province);
-    if (!prov) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    // ✅ ถ้าไม่ส่งโรคมา -> คืนค่า 0 (กัน sidebar ยังไม่เลือก)
+    if (!disease) {
+      return NextResponse.json(
+        { province, regionId: null, patients: 0, deaths: 0 },
+        { status: 200 }
+      );
     }
 
-    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
-    const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
+    // ✅ resolve table จาก disease_fact_tables
+    const fact = await resolveFactTable(disease);
+    if (!fact) {
+      return NextResponse.json(
+        { province, regionId: null, patients: 0, deaths: 0 },
+        { status: 200 }
+      );
+    }
 
     // 🧮 ผู้ป่วยในช่วงวันที่
     const patientsRow = await db
-      .selectFrom("influenza_cases as ic")
-      .select([sql<number>`COUNT(*)`.as("patients")])
-      .where(caseDate, ">=", startDate)
-      .where(caseDate, "<=", endDate)
-      .where("ic.province_id", "=", (prov as any).province_id)
+      .withSchema(fact.schema)
+      .selectFrom(`${fact.table} as ic` as any)
+      .select([sql<number>`COUNT(*)::int`.as("patients")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", province)
+      .where("ic.disease_code", "=", disease)
       .executeTakeFirst();
 
-    // ☠️ ผู้เสียชีวิตในช่วงวันที่ (นับเฉพาะแถวที่มี deathDate ไม่เป็น null)
+    // ☠️ ผู้เสียชีวิตในช่วงวันที่
     const deathsRow = await db
-      .selectFrom("influenza_cases as ic")
+      .withSchema(fact.schema)
+      .selectFrom(`${fact.table} as ic` as any)
       .select([
-        sql<number>`COUNT(*) FILTER (WHERE ${deathDate} IS NOT NULL)`.as("deaths"),
+        sql<number>`COUNT(*) FILTER (WHERE ic.death_date_parsed IS NOT NULL)::int`.as(
+          "deaths"
+        ),
       ])
-      .where(sql<boolean>`${deathDate} IS NOT NULL`)
-      .where(deathDate, ">=", startDate)
-      .where(deathDate, "<=", endDate)
-      .where("ic.province_id", "=", (prov as any).province_id)
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", province)
+      .where("ic.disease_code", "=", disease)
       .executeTakeFirst();
 
     return NextResponse.json(
       {
-        province: (prov as any).province_name_th, // คืนชื่อจังหวัดมาตรฐาน
-        regionId: (prov as any).region_id ?? null,
+        province,
+        regionId: null,
         patients: Number((patientsRow as any)?.patients ?? 0),
         deaths: Number((deathsRow as any)?.deaths ?? 0),
       },
@@ -98,6 +130,9 @@ export async function GET(request: NextRequest) {
     );
   } catch (err) {
     console.error("❌ API ERROR (province-summary):", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { province: "", regionId: null, patients: 0, deaths: 0 },
+      { status: 200 }
+    );
   }
 }

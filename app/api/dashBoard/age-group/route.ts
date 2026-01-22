@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // กลุ่มอายุ
 const ageGroups = [
@@ -23,30 +24,38 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
-
-  // ถ้าส่งเป็นเลข -> ถือว่าเป็น province_id
-  if (/^\d+$/.test(p)) return Number(p);
-
-  // ถ้าส่งเป็นชื่อจังหวัดไทย -> map ไปเป็น province_id
-  const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
-    .executeTakeFirst();
-
-  return found?.province_id ?? null;
+function pickDisease(params: URLSearchParams) {
+  return (
+    (params.get("disease") ||
+      params.get("diseaseCode") ||
+      params.get("disease_code") ||
+      "")!
+  ).trim();
 }
 
-/** ✅ mapping คอลัมน์วันที่ตาม schema (ไม่แตะ DB) */
-const CASE_DATE_COL = process.env.DB_CASE_DATE_COL || "onset_date_parsed";
-const CASE_DATE_CAST = (process.env.DB_CASE_DATE_CAST || "").trim(); // เช่น "date" หรือ "timestamptz"
+/** ✅ resolve table จาก disease_fact_tables */
+async function resolveFactTable(diseaseCode: string) {
+  // fallback เดิมกันกราฟพัง
+  const fallback = { schema: "public", table: "d01_influenza" };
 
-function dateExpr(tableAlias: string, col: string, cast: string) {
-  const ref = sql.ref(`${tableAlias}.${col}`);
-  if (!cast) return ref;
-  return sql`${ref}::${sql.raw(cast)}`;
+  if (!diseaseCode) return fallback;
+
+  const row = await db
+    .selectFrom("disease_fact_tables")
+    .select(["schema_name", "table_name", "is_active"])
+    .where("disease_code", "=", diseaseCode)
+    .where("is_active", "=", true)
+    .executeTakeFirst();
+
+  const schema = String((row as any)?.schema_name || "").trim();
+  const table = String((row as any)?.table_name || "").trim();
+
+  // ✅ กัน injection แบบชัวร์ (อนุญาตเฉพาะ a-z0-9_)
+  const ok = (s: string) => /^[a-z0-9_]+$/i.test(s);
+
+  if (!schema || !table || !ok(schema) || !ok(table)) return fallback;
+
+  return { schema, table };
 }
 
 export async function GET(request: NextRequest) {
@@ -55,40 +64,64 @@ export async function GET(request: NextRequest) {
 
     const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+    // ✅ province ต้องมี แต่ถ้าไม่มีให้คืน [] (กันกราฟพัง)
+    const provinceRaw = (params.get("province") || "").trim();
+
+    // ✅ disease optional
+    const diseaseCode = pickDisease(params);
+
+    if (!provinceRaw) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    // ✅ ถ้าเลือก "ทุกจังหวัด" ให้ไม่กรอง province
+    const isAllProvince =
+      provinceRaw === "ทุกจังหวัด" ||
+      provinceRaw === "ทั้งหมด" ||
+      provinceRaw.toLowerCase() === "all";
+
+    // ✅ resolve fact table
+    const { schema, table } = await resolveFactTable(diseaseCode);
+
+    // ✅ Query หลัก (dynamic table)
+    let q = db
+      .withSchema(schema)
+      .selectFrom(`${table} as ic` as any)
+      .select([
+        sql<number>`COUNT(*)::int`.as("patients"),
+        sql<number>`ic.age_y`.as("age_y"),
+      ])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.age_y", "is not", null);
+
+    // ✅ กรองจังหวัด ถ้าไม่ใช่ทุกจังหวัด
+    if (!isAllProvince) {
+      q = q.where("ic.province", "=", provinceRaw);
     }
 
-    const caseDate = dateExpr("ic", CASE_DATE_COL, CASE_DATE_CAST);
+    // ✅ ถ้า table เป็นรวมหลายโรค ให้กรอง disease_code
+    // (ถ้าเป็น table แยกโรคอยู่แล้ว การกรองนี้ก็ไม่เสียอะไร)
+    if (diseaseCode) {
+      q = q.where("ic.disease_code", "=", diseaseCode);
+    }
 
-    // 📍 ดึงจำนวนผู้ป่วยแยกตามอายุ (age_y) ของจังหวัดนั้น จากตาราง influenza_cases
-    const rows = await db
-      .selectFrom("influenza_cases as ic")
-      .select([sql<number>`COUNT(*)`.as("patients"), "ic.age_y as age_y"])
-      .where(caseDate, ">=", startDate)
-      .where(caseDate, "<=", endDate)
-      .where("ic.province_id", "=", provinceId)
-      .where("ic.age_y", "is not", null)
-      .groupBy("ic.age_y")
-      .execute();
+    const rows = await q.groupBy("ic.age_y").execute();
 
     // 📊 Map age → group
     const grouped: Record<string, number> = {};
     for (const g of ageGroups) grouped[g.label] = 0;
 
-    for (const row of rows) {
-      const age = Number((row as any).age_y);
+    for (const row of rows as any[]) {
+      const age = Number(row.age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number((row as any).patients);
+      if (group) grouped[group.label] += Number(row.patients || 0);
     }
 
     const result = Object.entries(grouped).map(([ageRange, patients]) => ({
@@ -102,6 +135,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json([], {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }

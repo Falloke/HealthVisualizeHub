@@ -23,8 +23,6 @@ import {
 
 type ProvinceSummary = {
   province: string;
-  /** API อาจส่งเป็น "1".."7" หรือชื่อไทยเต็ม */
-  region?: string | null;
   patients: number;
 };
 
@@ -38,7 +36,6 @@ type APIResp = {
 
 type Row = {
   province: string;
-  region?: string | null;
   value: number;
   isMain?: boolean;
   isCompare?: boolean;
@@ -56,55 +53,8 @@ const CARD_H = 360;
 const HEADER_MIN_H = 72;
 
 const BAR_SIZE = 22;
-const Y_AXIS_WIDTH = 90;
+const Y_AXIS_WIDTH = 120;
 const CHART_MARGIN = { top: 8, right: 24, bottom: 8, left: 32 };
-
-// ------------------ Region mapping (DB: ref.regions_moph) ------------------
-
-type RegionRow = {
-  region_id: number;
-  region_name_th: string;
-  display_order: number;
-};
-
-function compactThai(s: string) {
-  return String(s ?? "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/ฯ/g, "")
-    .toLowerCase();
-}
-
-function prettyRegion(name: string): string {
-  const s = (name || "").trim();
-  if (!s) return "";
-
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) return "กรุงเทพฯและปริมณฑล";
-
-  return s.replace(/^ภาค\s*/i, "").trim();
-}
-
-function resolveRegionName(
-  raw: unknown,
-  byId: Record<string, string>,
-  byKey: Record<string, string>
-) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-
-  // ตัวเลข => region_id
-  const n = Number(s);
-  if (Number.isFinite(n) && n > 0) return byId[String(n)] || s;
-
-  // ชื่อไทย => key map
-  const key = compactThai(s);
-  if (byKey[key]) return byKey[key];
-
-  // fallback บางเคส
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) return byId["7"] || s;
-
-  return s;
-}
 
 // ------------------ Utils ------------------
 
@@ -126,27 +76,25 @@ function extractMainCompare(json: APIResp): {
   };
 }
 
-function buildRowsFromMainCompare(
-  main?: ProvinceSummary,
-  compare?: ProvinceSummary
-): Row[] {
+function buildRowsFromMainCompare(main?: ProvinceSummary, compare?: ProvinceSummary): Row[] {
   const next: Row[] = [];
-  if (main) {
+
+  if (main?.province) {
     next.push({
-      province: main.province,
-      region: main.region ?? undefined,
+      province: String(main.province),
       value: Number(main.patients ?? 0),
       isMain: true,
     });
   }
-  if (compare) {
+
+  if (compare?.province) {
     next.push({
-      province: compare.province,
-      region: compare.region ?? undefined,
+      province: String(compare.province),
       value: Number(compare.patients ?? 0),
       isCompare: true,
     });
   }
+
   return next;
 }
 
@@ -155,21 +103,18 @@ function parsePrefetched(prefetched: unknown): Row[] | null {
 
   if (typeof prefetched === "object") {
     const p = prefetched as any;
+
+    // payload ตรง ๆ (main/compare)
     const main = p.main ?? p.data?.main;
     const compare = p.compare ?? p.data?.compare;
-
     if (main || compare) return buildRowsFromMainCompare(main, compare);
 
+    // payload เป็น rows/items ก็ได้
     const rows = p.rows ?? p.items ?? p.data?.rows ?? p.data?.items;
     if (Array.isArray(rows)) {
-      if (
-        rows.length &&
-        "province" in rows[0] &&
-        ("value" in rows[0] || "patients" in rows[0])
-      ) {
+      if (rows.length && "province" in rows[0] && ("value" in rows[0] || "patients" in rows[0])) {
         return rows.map((r: any) => ({
           province: String(r.province ?? ""),
-          region: r.region ?? undefined,
           value: Number(r.value ?? r.patients ?? 0),
           isMain: Boolean(r.isMain),
           isCompare: Boolean(r.isCompare),
@@ -177,14 +122,11 @@ function parsePrefetched(prefetched: unknown): Row[] | null {
       }
     }
   }
+
   return null;
 }
 
-export default function CompareProvincePatientsChart({
-  prefetched,
-  parentLoading,
-}: Props) {
-  const diseaseNameTh = useDashboardStore((s) => s.diseaseNameTh);
+export default function CompareProvincePatientsChart({ prefetched, parentLoading }: Props) {
   const diseaseCode = useDashboardStore((s) => s.diseaseCode);
   const start_date = useDashboardStore((s) => s.start_date);
   const end_date = useDashboardStore((s) => s.end_date);
@@ -201,51 +143,6 @@ export default function CompareProvincePatientsChart({
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
-  // ✅ region mapping from DB
-  const [regionById, setRegionById] = useState<Record<string, string>>({});
-  const [regionByKey, setRegionByKey] = useState<Record<string, string>>({});
-  const regionsLoadedRef = useRef(false);
-
-  useEffect(() => {
-    if (regionsLoadedRef.current) return;
-    regionsLoadedRef.current = true;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/ref/regions-moph", { cache: "no-store" });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "โหลด regions_moph ไม่สำเร็จ");
-
-        const json = text ? JSON.parse(text) : {};
-        const rows = (json?.rows ?? []) as RegionRow[];
-
-        const byId: Record<string, string> = {};
-        const byKey: Record<string, string> = {};
-
-        for (const r of rows) {
-          const name = String(r.region_name_th ?? "").trim();
-          if (!name) continue;
-
-          byId[String(r.region_id)] = name;
-          byKey[compactThai(name)] = name;
-          byKey[compactThai(name.replace(/^ภาค\s*/i, ""))] = name;
-
-          if (name.includes("กรุงเทพ") || name.includes("ปริมณฑล")) {
-            byKey["กรุงเทพ"] = name;
-            byKey["กรุงเทพมหานครและปริมณฑล"] = name;
-          }
-        }
-
-        setRegionById(byId);
-        setRegionByKey(byKey);
-      } catch (e) {
-        console.error("❌ Load regions_moph error:", e);
-        setRegionById({});
-        setRegionByKey({});
-      }
-    })();
-  }, []);
-
   const requestUrl = useMemo(() => {
     if (!hasBoth) return "";
     const qs = new URLSearchParams({
@@ -255,9 +152,11 @@ export default function CompareProvincePatientsChart({
       mainProvince: mainProvince!,
       compareProvince: compareProvince!,
     }).toString();
+
     return `/api/compareInfo/province-patients?${qs}`;
   }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
+  // ✅ prefetched ก่อน
   useEffect(() => {
     const parsed = parsePrefetched(prefetched);
     if (parsed) {
@@ -282,6 +181,7 @@ export default function CompareProvincePatientsChart({
       return;
     }
 
+    // ✅ กันยิงซ้ำ
     if (inFlightRef.current.has(requestUrl)) return;
 
     const ac = new AbortController();
@@ -326,48 +226,25 @@ export default function CompareProvincePatientsChart({
     };
   }, [hasBoth, requestUrl]);
 
-  const xMax = useMemo(
-    () => niceMax(Math.max(0, ...rows.map((r) => Number(r.value ?? 0)))),
-    [rows]
-  );
-
-  // ✅ ดึงชื่อภูมิภาคจาก DB สำหรับหัวข้อ
-  const mainRegionLabel = useMemo(() => {
-    const mainRow = rows.find((r) => r.isMain);
-    const full = resolveRegionName(mainRow?.region, regionById, regionByKey);
-    return full ? prettyRegion(full) : "";
-  }, [rows, regionById, regionByKey]);
-
-  const compareRegionLabel = useMemo(() => {
-    const compareRow = rows.find((r) => r.isCompare);
-    const full = resolveRegionName(compareRow?.region, regionById, regionByKey);
-    return full ? prettyRegion(full) : "";
-  }, [rows, regionById, regionByKey]);
+  const xMax = useMemo(() => {
+    const m = Math.max(0, ...rows.map((r) => Number(r.value ?? 0)));
+    return niceMax(m);
+  }, [rows]);
 
   const headerLine = useMemo(() => {
     const a = mainProvince || "—";
     const b = compareProvince || "—";
-
-    if (!hasBoth) return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} vs ${b}`;
-
-    // ถ้าได้ชื่อภูมิภาคแล้ว ค่อยแสดง
-    if (mainRegionLabel || compareRegionLabel) {
-      const left = mainRegionLabel ? `${a} (${mainRegionLabel})` : a;
-      const right = compareRegionLabel ? `${b} (${compareRegionLabel})` : b;
-      return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${left} vs ${right}`;
-    }
-
     return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} vs ${b}`;
-  }, [hasBoth, mainProvince, compareProvince, mainRegionLabel, compareRegionLabel]);
+  }, [mainProvince, compareProvince]);
 
   return (
-    <div className="rounded bg-white p-4 shadow flex flex-col" style={{ height: CARD_H }}>
+    <div className="flex flex-col rounded bg-white p-4 shadow" style={{ height: CARD_H }}>
       <div style={{ minHeight: HEADER_MIN_H }}>
         <h4 className="mb-1 font-bold">{headerLine}</h4>
 
-        {/* (ถ้าอยากโชว์โรค/ช่วงเวลา เปิดได้) */}
+        {/* ถ้าอยากโชว์ช่วงเวลา/โรค เปิดได้ */}
         {/* <p className="text-xs text-gray-600">
-          โรคที่เลือก: <span className="font-semibold">{diseaseNameTh || "—"}</span> | ช่วงเวลา:{" "}
+          disease: <span className="font-semibold">{diseaseCode || "—"}</span> |{" "}
           <span className="font-semibold">{start_date || "—"} – {end_date || "—"}</span>
         </p> */}
       </div>
@@ -403,11 +280,14 @@ export default function CompareProvincePatientsChart({
                 tick={{ fontSize: 13 }}
               />
 
-              <Tooltip
-                content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />}
-              />
+              <Tooltip content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />} />
 
-              <Bar dataKey="value" name="ผู้ป่วยสะสม" radius={[0, 6, 6, 0]} isAnimationActive={false}>
+              <Bar
+                dataKey="value"
+                name="ผู้ป่วยสะสม"
+                radius={[0, 6, 6, 0]}
+                isAnimationActive={false}
+              >
                 <LabelList dataKey="value" content={<ValueLabelRight />} />
                 {rows.map((r, idx) => (
                   <Cell key={idx} fill={r.isMain ? "#2185D5" : "#6CB3EA"} />

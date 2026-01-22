@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphCompareRegionTop5.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +22,7 @@ import {
 type APIResp = {
   region?: string;
   topPatients?: Array<{ province: string; patients: number | string }>;
+  topDeaths?: Array<{ province: string; deaths?: number | string; region?: string }>;
   selected?: {
     province: string;
     patients: number | string;
@@ -39,7 +39,7 @@ type APIResp = {
 
 type Row = {
   province: string;
-  patients: number; // ใช้ number ภายในไฟล์นี้เสมอ
+  patients: number;
   rank?: number;
   isA?: boolean;
   isB?: boolean;
@@ -47,13 +47,12 @@ type Row = {
 
 type RowWithFill = Row & { fill: string };
 
-/** ✅ พาเล็ตความเสี่ยง (ตามกราฟ GraphByAgePatients) */
+/** ✅ พาเล็ตความเสี่ยง */
 const RISK_COLORS = ["#B00020", "#F4511E", "#FFB300", "#009688"] as const;
 const THRESHOLD_VERY_HIGH = 8000;
 const THRESHOLD_HIGH = 4000;
 const THRESHOLD_MEDIUM = 2000;
 
-/** ✅ กันค่าจาก API เป็น string มี comma เช่น "7,767" */
 function toNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (typeof v === "string") {
@@ -66,17 +65,16 @@ function toNumber(v: unknown): number {
 
 function riskLevel(patients: unknown): 0 | 1 | 2 | 3 {
   const v = toNumber(patients);
-  if (v >= THRESHOLD_VERY_HIGH) return 0; // สูงมาก
-  if (v >= THRESHOLD_HIGH) return 1; // สูง
-  if (v >= THRESHOLD_MEDIUM) return 2; // ปานกลาง
-  return 3; // ต่ำ
+  if (v >= THRESHOLD_VERY_HIGH) return 0;
+  if (v >= THRESHOLD_HIGH) return 1;
+  if (v >= THRESHOLD_MEDIUM) return 2;
+  return 3;
 }
 
 function colorByRisk(patients: unknown): string {
   return RISK_COLORS[riskLevel(patients)];
 }
 
-/** ✅ ใส่สีตามเกณฑ์เท่านั้น (ไม่มีไล่สี ไม่มี fallback) */
 function addRiskFillStrict(rows: Row[]): RowWithFill[] {
   return rows.map((r) => {
     const p = toNumber(r.patients);
@@ -84,7 +82,6 @@ function addRiskFillStrict(rows: Row[]): RowWithFill[] {
   });
 }
 
-/** ข้อความ legend */
 function riskLegendText() {
   const v = TH_NUMBER(THRESHOLD_VERY_HIGH);
   const h = TH_NUMBER(THRESHOLD_HIGH);
@@ -175,7 +172,6 @@ function YAxisTick({ x, y, payload, fontSize, maxChars }: any) {
   );
 }
 
-/** helper: แปลงผล API ของ 1 จังหวัด ให้เป็น rows Top5 ในภูมิภาคของจังหวัดนั้น */
 function buildRowsForOneProvince(
   resp: APIResp,
   selectedProvince: string | null,
@@ -194,7 +190,12 @@ function buildRowsForOneProvince(
   let rows = [...baseTop];
 
   const extra = resp.selectedProvince;
-  if (selectedProvince && extra && !rows.some((r) => r.province === extra.province)) {
+  if (
+    selectedProvince &&
+    extra &&
+    extra.province &&
+    !rows.some((r) => r.province === extra.province)
+  ) {
     rows.push({
       province: `${extra.province} (อันดับ ${extra.rank})`,
       patients: toNumber(extra.patients),
@@ -211,10 +212,12 @@ function buildRowsForOneProvince(
 // -------------------- component --------------------
 
 export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) {
-  const { start_date, end_date } = useDashboardStore();
+  const { start_date, end_date, diseaseCode } = useDashboardStore();
   const [loading, setLoading] = useState(false);
 
-  const [mode, setMode] = useState<"singleRegion" | "twoRegions">("singleRegion");
+  const [mode, setMode] = useState<"singleRegion" | "twoRegions">(
+    "singleRegion"
+  );
 
   const [rowsSingle, setRowsSingle] = useState<Row[]>([]);
   const [regionTitle, setRegionTitle] = useState("");
@@ -224,38 +227,60 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
   const [regionAName, setRegionAName] = useState("");
   const [regionBName, setRegionBName] = useState("");
 
+  // ✅ HOOKS ต้องเรียกเสมอ (ห้ามอยู่ใน if)
+  const singleBox = useElementWidth<HTMLDivElement>();
+  const boxA = useElementWidth<HTMLDivElement>();
+  const boxB = useElementWidth<HTMLDivElement>();
+
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
+      // ✅ ไม่มีโรค -> ไม่ยิง API
+      if (!diseaseCode || !diseaseCode.trim()) {
+        setRowsSingle([]);
+        setRowsA([]);
+        setRowsB([]);
+        setRegionTitle("");
+        setRegionAName("");
+        setRegionBName("");
+        return;
+      }
+
+      // ✅ ยังไม่เลือกจังหวัดเลย -> เคลียร์เฉย ๆ
       if (!provinceA && !provinceB) {
         setRowsSingle([]);
         setRowsA([]);
         setRowsB([]);
+        setRegionTitle("");
+        setRegionAName("");
+        setRegionBName("");
         return;
       }
 
       try {
         setLoading(true);
 
+        const makeUrl = (pv: string) =>
+          `/api/dashBoard/region-by-province?start_date=${encodeURIComponent(
+            start_date || ""
+          )}&end_date=${encodeURIComponent(
+            end_date || ""
+          )}&province=${encodeURIComponent(
+            pv
+          )}&disease=${encodeURIComponent(diseaseCode)}`;
+
         const [respA, respB] = await Promise.all([
           provinceA
-            ? fetch(
-                `/api/dashBoard/region-by-province?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-                  provinceA
-                )}`
-              ).then(async (r) => {
+            ? fetch(makeUrl(provinceA), { cache: "no-store" }).then(async (r) => {
                 const t = await r.text();
                 if (!r.ok) throw new Error(t || "โหลดข้อมูล A ไม่สำเร็จ");
                 return (t ? JSON.parse(t) : {}) as APIResp;
               })
             : Promise.resolve(undefined),
+
           provinceB
-            ? fetch(
-                `/api/dashBoard/region-by-province?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-                  provinceB
-                )}`
-              ).then(async (r) => {
+            ? fetch(makeUrl(provinceB), { cache: "no-store" }).then(async (r) => {
                 const t = await r.text();
                 if (!r.ok) throw new Error(t || "โหลดข้อมูล B ไม่สำเร็จ");
                 return (t ? JSON.parse(t) : {}) as APIResp;
@@ -265,45 +290,83 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
 
         if (cancelled) return;
 
+        // ---------- case: มีจังหวัดเดียว ----------
         if (respA && !respB) {
-          const { rows, regionName } = buildRowsForOneProvince(respA, provinceA, "A");
+          const { rows, regionName } = buildRowsForOneProvince(
+            respA,
+            provinceA,
+            "A"
+          );
           setMode("singleRegion");
           setRowsSingle(rows);
           setRegionTitle(regionName);
-          return;
-        }
-        if (!respA && respB) {
-          const { rows, regionName } = buildRowsForOneProvince(respB, provinceB, "B");
-          setMode("singleRegion");
-          setRowsSingle(rows);
-          setRegionTitle(regionName);
-          return;
-        }
-        if (!respA || !respB) {
-          setRowsSingle([]);
           setRowsA([]);
           setRowsB([]);
+          setRegionAName("");
+          setRegionBName("");
+          return;
+        }
+
+        if (!respA && respB) {
+          const { rows, regionName } = buildRowsForOneProvince(
+            respB,
+            provinceB,
+            "B"
+          );
+          setMode("singleRegion");
+          setRowsSingle(rows);
+          setRegionTitle(regionName);
+          setRowsA([]);
+          setRowsB([]);
+          setRegionAName("");
+          setRegionBName("");
+          return;
+        }
+
+        // ---------- case: ไม่มีข้อมูลทั้งคู่ ----------
+        if (!respA || !respB) {
+          setMode("singleRegion");
+          setRowsSingle([]);
+          setRegionTitle("");
+          setRowsA([]);
+          setRowsB([]);
+          setRegionAName("");
+          setRegionBName("");
           return;
         }
 
         const regionA =
-          respA.selected?.region || respA.selectedProvince?.region || respA.region || "";
+          respA.selected?.region ||
+          respA.selectedProvince?.region ||
+          respA.region ||
+          "";
         const regionB =
-          respB.selected?.region || respB.selectedProvince?.region || respB.region || "";
+          respB.selected?.region ||
+          respB.selectedProvince?.region ||
+          respB.region ||
+          "";
 
+        // ---------- case: อยู่ภูมิภาคเดียวกัน ----------
         if (regionA && regionB && regionA === regionB) {
-          const baseTop: Row[] = (respA.topPatients ?? []).slice(0, 5).map((d, i) => ({
-            province: d.province,
-            patients: toNumber(d.patients),
-            rank: i + 1,
-            isA: provinceA ? d.province === provinceA : false,
-            isB: provinceB ? d.province === provinceB : false,
-          }));
+          const baseTop: Row[] = (respA.topPatients ?? [])
+            .slice(0, 5)
+            .map((d, i) => ({
+              province: d.province,
+              patients: toNumber(d.patients),
+              rank: i + 1,
+              isA: provinceA ? d.province === provinceA : false,
+              isB: provinceB ? d.province === provinceB : false,
+            }));
 
           let combined: Row[] = [...baseTop];
 
           const extraA = respA.selectedProvince;
-          if (provinceA && extraA && !combined.some((r) => r.province === extraA.province)) {
+          if (
+            provinceA &&
+            extraA &&
+            extraA.province &&
+            !combined.some((r) => r.province === extraA.province)
+          ) {
             combined.push({
               province: `${extraA.province} (อันดับ ${extraA.rank})`,
               patients: toNumber(extraA.patients),
@@ -313,7 +376,12 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
           }
 
           const extraB = respB.selectedProvince;
-          if (provinceB && extraB && !combined.some((r) => r.province === extraB.province)) {
+          if (
+            provinceB &&
+            extraB &&
+            extraB.province &&
+            !combined.some((r) => r.province === extraB.province)
+          ) {
             combined.push({
               province: `${extraB.province} (อันดับ ${extraB.rank})`,
               patients: toNumber(extraB.patients),
@@ -325,22 +393,34 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
           setMode("singleRegion");
           setRowsSingle(combined);
           setRegionTitle(regionA);
+          setRowsA([]);
+          setRowsB([]);
+          setRegionAName("");
+          setRegionBName("");
         } else {
+          // ---------- case: คนละภูมิภาค ----------
           const oneA = buildRowsForOneProvince(respA, provinceA, "A");
           const oneB = buildRowsForOneProvince(respB, provinceB, "B");
 
           setMode("twoRegions");
           setRowsA(oneA.rows);
           setRowsB(oneB.rows);
-          setRegionAName(oneA.regionName || `ภูมิภาคของ ${provinceA}`);
-          setRegionBName(oneB.regionName || `ภูมิภาคของ ${provinceB}`);
+          setRegionAName(oneA.regionName || `ภูมิภาคของ ${provinceA ?? "-"}`);
+          setRegionBName(oneB.regionName || `ภูมิภาคของ ${provinceB ?? "-"}`);
+
+          setRowsSingle([]);
+          setRegionTitle("");
         }
       } catch (err) {
         console.error("❌ Fetch error (compare region top5):", err);
         if (!cancelled) {
+          setMode("singleRegion");
           setRowsSingle([]);
           setRowsA([]);
           setRowsB([]);
+          setRegionTitle("");
+          setRegionAName("");
+          setRegionBName("");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -350,12 +430,14 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
     return () => {
       cancelled = true;
     };
-  }, [provinceA, provinceB, start_date, end_date]);
+  }, [provinceA, provinceB, start_date, end_date, diseaseCode]);
 
   const legend = riskLegendText();
 
-  // ✅ strict threshold colors
-  const rowsSingleFill = useMemo(() => addRiskFillStrict(rowsSingle), [rowsSingle]);
+  const rowsSingleFill = useMemo(
+    () => addRiskFillStrict(rowsSingle),
+    [rowsSingle]
+  );
   const rowsAFill = useMemo(() => addRiskFillStrict(rowsA), [rowsA]);
   const rowsBFill = useMemo(() => addRiskFillStrict(rowsB), [rowsB]);
 
@@ -371,6 +453,32 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
     () => niceMax(Math.max(0, ...rowsBFill.map((d) => toNumber(d.patients)))),
     [rowsBFill]
   );
+
+  // ✅ คำนวณ YAxis layout แบบไม่ผิด hooks
+  const longestSingle = useMemo(
+    () =>
+      rowsSingleFill.reduce(
+        (m, d) => Math.max(m, String(d.province ?? "").length),
+        0
+      ),
+    [rowsSingleFill]
+  );
+  const ySingle = useMemo(
+    () => calcYAxisLayout(singleBox.width, longestSingle),
+    [singleBox.width, longestSingle]
+  );
+
+  const longestA = useMemo(
+    () => rowsAFill.reduce((m, d) => Math.max(m, String(d.province ?? "").length), 0),
+    [rowsAFill]
+  );
+  const longestB = useMemo(
+    () => rowsBFill.reduce((m, d) => Math.max(m, String(d.province ?? "").length), 0),
+    [rowsBFill]
+  );
+
+  const yA = useMemo(() => calcYAxisLayout(boxA.width, longestA), [boxA.width, longestA]);
+  const yB = useMemo(() => calcYAxisLayout(boxB.width, longestB), [boxB.width, longestB]);
 
   const legendBlock = (
     <>
@@ -407,6 +515,17 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
     </>
   );
 
+  // -------------------- UI --------------------
+
+  if (!diseaseCode || !diseaseCode.trim()) {
+    return (
+      <div className="rounded bg-white p-4 shadow">
+        <h4 className="mb-2 font-bold">เปรียบเทียบผู้ป่วยสะสมตามภูมิภาค</h4>
+        <p className="text-sm text-gray-500">โปรดเลือกโรคก่อน</p>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="rounded bg-white p-4 shadow">
@@ -416,179 +535,223 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
     );
   }
 
-  // -------------------- SINGLE REGION --------------------
   if (mode === "singleRegion") {
     const title = regionTitle
       ? `ผู้ป่วยสะสมใน ${regionTitle} (Top 5 จังหวัด)`
       : "ผู้ป่วยสะสมในภูมิภาค (Top 5 จังหวัด)";
 
-    const { ref, width } = useElementWidth<HTMLDivElement>();
-    const longest = useMemo(
-      () => rowsSingleFill.reduce((m, d) => Math.max(m, String(d.province ?? "").length), 0),
-      [rowsSingleFill]
-    );
-    const y = useMemo(() => calcYAxisLayout(width, longest), [width, longest]);
-
     return (
-      <div ref={ref} className="rounded bg-white p-4 shadow">
+      <div ref={singleBox.ref} className="rounded bg-white p-4 shadow">
         <h4 className="mb-2 font-bold">{title}</h4>
 
-        <ResponsiveContainer width="100%" height={400}>
-          <BarChart
-            data={rowsSingleFill}
-            layout="vertical"
-            margin={{ top: 8, right: y.marginRight, bottom: 16, left: y.marginLeft }}
-            barCategoryGap="2%"
-            barGap={0}
-          >
-            <XAxis
-              type="number"
-              tickFormatter={TH_NUMBER}
-              tickMargin={8}
-              domain={[0, xMaxSingle]}
-              allowDecimals={false}
-            />
-            <YAxis
-              type="category"
-              dataKey="province"
-              width={y.yWidth}
-              interval={0}
-              tick={(props) => <YAxisTick {...props} fontSize={y.fontSize} maxChars={y.maxChars} />}
-            />
-            <Tooltip content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />} />
-
-            <Bar
-              dataKey="patients"
-              name="ผู้ป่วยสะสม"
-              barSize={26}
-              radius={[0, 6, 6, 0]}
-              fill={RISK_COLORS[3]} // default
-              isAnimationActive={false}
+        {rowsSingleFill.length === 0 ? (
+          <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={400}>
+            <BarChart
+              data={rowsSingleFill}
+              layout="vertical"
+              margin={{
+                top: 8,
+                right: ySingle.marginRight,
+                bottom: 16,
+                left: ySingle.marginLeft,
+              }}
+              barCategoryGap="2%"
+              barGap={0}
             >
-              <LabelList dataKey="patients" content={<ValueLabelRight />} />
-              {rowsSingleFill.map((row, idx) => (
-                <Cell key={`c-single-${idx}`} fill={row.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+              <XAxis
+                type="number"
+                tickFormatter={TH_NUMBER}
+                tickMargin={8}
+                domain={[0, xMaxSingle]}
+                allowDecimals={false}
+              />
+              <YAxis
+                type="category"
+                dataKey="province"
+                width={ySingle.yWidth}
+                interval={0}
+                tick={(props) => (
+                  <YAxisTick
+                    {...props}
+                    fontSize={ySingle.fontSize}
+                    maxChars={ySingle.maxChars}
+                  />
+                )}
+              />
+              <Tooltip
+                content={
+                  <ProvinceCountTooltip
+                    seriesName="ผู้ป่วยสะสม"
+                    labelKey="province"
+                  />
+                }
+              />
+
+              <Bar
+                dataKey="patients"
+                name="ผู้ป่วยสะสม"
+                barSize={26}
+                radius={[0, 6, 6, 0]}
+                fill={RISK_COLORS[3]}
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="patients" content={<ValueLabelRight />} />
+                {rowsSingleFill.map((row, idx) => (
+                  <Cell key={`c-single-${idx}`} fill={row.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
 
         {legendBlock}
       </div>
     );
   }
 
-  // -------------------- TWO REGIONS --------------------
-  const { ref: refA, width: wA } = useElementWidth<HTMLDivElement>();
-  const { ref: refB, width: wB } = useElementWidth<HTMLDivElement>();
-
-  const longestA = useMemo(
-    () => rowsAFill.reduce((m, d) => Math.max(m, String(d.province ?? "").length), 0),
-    [rowsAFill]
-  );
-  const longestB = useMemo(
-    () => rowsBFill.reduce((m, d) => Math.max(m, String(d.province ?? "").length), 0),
-    [rowsBFill]
-  );
-
-  const yA = useMemo(() => calcYAxisLayout(wA, longestA), [wA, longestA]);
-  const yB = useMemo(() => calcYAxisLayout(wB, longestB), [wB, longestB]);
-
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h4 className="mb-4 font-bold">เปรียบเทียบผู้ป่วยสะสม Top 5 ตามภูมิภาคของจังหวัดที่เลือก</h4>
+      <h4 className="mb-4 font-bold">
+        เปรียบเทียบผู้ป่วยสะสม Top 5 ตามภูมิภาคของจังหวัดที่เลือก
+      </h4>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div ref={refA}>
+        <div ref={boxA.ref}>
           <h5 className="mb-2 font-semibold">
             ภูมิภาคของ {provinceA ?? "-"} {regionAName ? `(${regionAName})` : ""}
           </h5>
 
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart
-              data={rowsAFill}
-              layout="vertical"
-              margin={{ top: 8, right: yA.marginRight, bottom: 16, left: yA.marginLeft }}
-              barCategoryGap="2%"
-              barGap={0}
-            >
-              <XAxis
-                type="number"
-                tickFormatter={TH_NUMBER}
-                tickMargin={8}
-                domain={[0, xMaxA]}
-                allowDecimals={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="province"
-                width={yA.yWidth}
-                interval={0}
-                tick={(props) => <YAxisTick {...props} fontSize={yA.fontSize} maxChars={yA.maxChars} />}
-              />
-              <Tooltip content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />} />
-
-              <Bar
-                dataKey="patients"
-                name="ผู้ป่วยสะสม"
-                barSize={26}
-                radius={[0, 6, 6, 0]}
-                fill={RISK_COLORS[3]}
-                isAnimationActive={false}
+          {rowsAFill.length === 0 ? (
+            <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart
+                data={rowsAFill}
+                layout="vertical"
+                margin={{
+                  top: 8,
+                  right: yA.marginRight,
+                  bottom: 16,
+                  left: yA.marginLeft,
+                }}
+                barCategoryGap="2%"
+                barGap={0}
               >
-                <LabelList dataKey="patients" content={<ValueLabelRight />} />
-                {rowsAFill.map((row, idx) => (
-                  <Cell key={`c-a-${idx}`} fill={row.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <XAxis
+                  type="number"
+                  tickFormatter={TH_NUMBER}
+                  tickMargin={8}
+                  domain={[0, xMaxA]}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="province"
+                  width={yA.yWidth}
+                  interval={0}
+                  tick={(props) => (
+                    <YAxisTick
+                      {...props}
+                      fontSize={yA.fontSize}
+                      maxChars={yA.maxChars}
+                    />
+                  )}
+                />
+                <Tooltip
+                  content={
+                    <ProvinceCountTooltip
+                      seriesName="ผู้ป่วยสะสม"
+                      labelKey="province"
+                    />
+                  }
+                />
+
+                <Bar
+                  dataKey="patients"
+                  name="ผู้ป่วยสะสม"
+                  barSize={26}
+                  radius={[0, 6, 6, 0]}
+                  fill={RISK_COLORS[3]}
+                  isAnimationActive={false}
+                >
+                  <LabelList dataKey="patients" content={<ValueLabelRight />} />
+                  {rowsAFill.map((row, idx) => (
+                    <Cell key={`c-a-${idx}`} fill={row.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        <div ref={refB}>
+        <div ref={boxB.ref}>
           <h5 className="mb-2 font-semibold">
             ภูมิภาคของ {provinceB ?? "-"} {regionBName ? `(${regionBName})` : ""}
           </h5>
 
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart
-              data={rowsBFill}
-              layout="vertical"
-              margin={{ top: 8, right: yB.marginRight, bottom: 16, left: yB.marginLeft }}
-              barCategoryGap="2%"
-              barGap={0}
-            >
-              <XAxis
-                type="number"
-                tickFormatter={TH_NUMBER}
-                tickMargin={8}
-                domain={[0, xMaxB]}
-                allowDecimals={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="province"
-                width={yB.yWidth}
-                interval={0}
-                tick={(props) => <YAxisTick {...props} fontSize={yB.fontSize} maxChars={yB.maxChars} />}
-              />
-              <Tooltip content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />} />
-
-              <Bar
-                dataKey="patients"
-                name="ผู้ป่วยสะสม"
-                barSize={26}
-                radius={[0, 6, 6, 0]}
-                fill={RISK_COLORS[3]}
-                isAnimationActive={false}
+          {rowsBFill.length === 0 ? (
+            <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart
+                data={rowsBFill}
+                layout="vertical"
+                margin={{
+                  top: 8,
+                  right: yB.marginRight,
+                  bottom: 16,
+                  left: yB.marginLeft,
+                }}
+                barCategoryGap="2%"
+                barGap={0}
               >
-                <LabelList dataKey="patients" content={<ValueLabelRight />} />
-                {rowsBFill.map((row, idx) => (
-                  <Cell key={`c-b-${idx}`} fill={row.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <XAxis
+                  type="number"
+                  tickFormatter={TH_NUMBER}
+                  tickMargin={8}
+                  domain={[0, xMaxB]}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="province"
+                  width={yB.yWidth}
+                  interval={0}
+                  tick={(props) => (
+                    <YAxisTick
+                      {...props}
+                      fontSize={yB.fontSize}
+                      maxChars={yB.maxChars}
+                    />
+                  )}
+                />
+                <Tooltip
+                  content={
+                    <ProvinceCountTooltip
+                      seriesName="ผู้ป่วยสะสม"
+                      labelKey="province"
+                    />
+                  }
+                />
+
+                <Bar
+                  dataKey="patients"
+                  name="ผู้ป่วยสะสม"
+                  barSize={26}
+                  radius={[0, 6, 6, 0]}
+                  fill={RISK_COLORS[3]}
+                  isAnimationActive={false}
+                >
+                  <LabelList dataKey="patients" content={<ValueLabelRight />} />
+                  {rowsBFill.map((row, idx) => (
+                    <Cell key={`c-b-${idx}`} fill={row.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

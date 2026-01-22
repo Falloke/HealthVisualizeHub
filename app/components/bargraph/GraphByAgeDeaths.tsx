@@ -16,7 +16,6 @@ import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
 
 type AgeRow = { ageRange: string; deaths: number };
 
-/** รวมฟังก์ชันแปลงช่วงอายุ -> ช่วงวัย (full/short) */
 function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
   const r = (range || "").trim();
   if (/^0\s*-\s*4$/.test(r))
@@ -31,7 +30,6 @@ function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
   return r;
 }
 
-/** Tooltip: ช่วงอายุ (คำอธิบาย) + ผู้เสียชีวิตสะสม : xx ราย */
 function AgeDeathsTooltip({
   active,
   payload,
@@ -57,38 +55,54 @@ function AgeDeathsTooltip({
   return null;
 }
 
-export default function GraphByGenderDeaths() {
-  const { province, start_date, end_date } = useDashboardStore();
+export default function GraphByAgeDeaths() {
+  const { province, start_date, end_date, disease } = useDashboardStore() as any;
   const [data, setData] = useState<AgeRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const provinceLabel = (province || "").trim();
+  const diseaseCode = (disease || "").trim();
+
   useEffect(() => {
-    if (!province) {
+    if (!provinceLabel || !diseaseCode) {
       setData([]);
       setLoading(false);
       return;
     }
+
+    let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/age-group-deaths?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-          province
-        )}`;
+
+        // ✅ ใส่ disease ไปด้วย
+        const url =
+          `/api/dashBoard/age-group-deaths` +
+          `?start_date=${encodeURIComponent(start_date)}` +
+          `&end_date=${encodeURIComponent(end_date)}` +
+          `&province=${encodeURIComponent(provinceLabel)}` +
+          `&disease=${encodeURIComponent(diseaseCode)}`;
+
         const res = await fetch(url, { cache: "no-store" });
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
+
         const json: AgeRow[] = text ? JSON.parse(text) : [];
-        setData(json ?? []);
+        if (!cancelled) setData(json ?? []);
       } catch (err) {
         console.error("❌ Fetch error (age-group-deaths):", err);
-        setData([]);
+        if (!cancelled) setData([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [province, start_date, end_date]);
 
-  // ปลายแกน X ให้พอดีกับข้อมูล (อิงค่าสูงสุดของ deaths)
+    return () => {
+      cancelled = true;
+    };
+  }, [provinceLabel, diseaseCode, start_date, end_date]); // ✅ ใส่ diseaseCode ด้วย
+
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => Number(d.deaths ?? 0)))),
     [data]
@@ -97,16 +111,19 @@ export default function GraphByGenderDeaths() {
   return (
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
-        ผู้เสียชีวิตสะสมรายช่วงอายุ ({province || "—"})
+        ผู้เสียชีวิตสะสมรายช่วงอายุ ({provinceLabel || "—"})
       </h4>
-      {loading ? (
+
+      {!diseaseCode ? (
+        <p className="text-sm text-gray-600">⚠️ กรุณาเลือกโรคก่อน</p>
+      ) : loading ? (
         <p>⏳ กำลังโหลด...</p>
       ) : (
         <ResponsiveContainer width="100%" height={400}>
           <BarChart
             data={data}
             layout="vertical"
-            margin={{ top: 8, right: 64, bottom: 16, left: 8 }} // ชิดซ้าย
+            margin={{ top: 8, right: 64, bottom: 16, left: 8 }}
             barCategoryGap="4%"
             barGap={0}
           >
@@ -117,7 +134,7 @@ export default function GraphByGenderDeaths() {
               tickMargin={8}
               allowDecimals={false}
             />
-            {/* แกนซ้ายกะทัดรัด: โชว์เฉพาะ 0-4, 5-9, ... */}
+
             <YAxis
               type="category"
               dataKey="ageRange"
@@ -134,8 +151,8 @@ export default function GraphByGenderDeaths() {
               name="ผู้เสียชีวิตสะสม"
               barSize={26}
               radius={[0, 6, 6, 0]}
+              isAnimationActive={false}
             >
-              {/* ปลายแท่ง: “ช่วงวัย + จำนวน ราย” */}
               <LabelList
                 dataKey="deaths"
                 content={(p: any) => {

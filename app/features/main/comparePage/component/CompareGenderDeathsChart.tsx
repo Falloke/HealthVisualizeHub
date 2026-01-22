@@ -46,10 +46,8 @@ function genderLabel(g: Row["gender"]): string {
 }
 
 function colorForRow(r: Row): string {
-  if (r.gender === "male")
-    return r.provinceType === "main" ? MAIN_MALE : COMPARE_MALE;
-  if (r.gender === "female")
-    return r.provinceType === "main" ? MAIN_FEMALE : COMPARE_FEMALE;
+  if (r.gender === "male") return r.provinceType === "main" ? MAIN_MALE : COMPARE_MALE;
+  if (r.gender === "female") return r.provinceType === "main" ? MAIN_FEMALE : COMPARE_FEMALE;
   return r.provinceType === "main" ? MAIN_UNKNOWN : COMPARE_UNKNOWN;
 }
 
@@ -129,6 +127,7 @@ function buildRows(
   if (main) pushAll(main, "main", mainProvinceSelected);
   if (compare) pushAll(compare, "compare", compareProvinceSelected);
 
+  // ✅ กรองเฉพาะค่าที่มากกว่า 0
   return out.filter((r) => Number.isFinite(r.value) && r.value > 0);
 }
 
@@ -138,12 +137,15 @@ function normalizeMainCompare(input: unknown): {
   ok: boolean;
   error?: string;
 } {
-  if (!input || typeof input !== "object")
+  if (!input || typeof input !== "object") {
     return { ok: false, error: "invalid response" };
+  }
   const obj: any = input;
   if (obj.ok === false) return { ok: false, error: obj.error || "api error" };
+
   const main = obj.main ?? obj.data?.main;
   const compare = obj.compare ?? obj.data?.compare;
+
   return { ok: true, main, compare };
 }
 
@@ -155,8 +157,16 @@ function sumSummary(s?: GenderSummary) {
 type CacheEntry = { at: number; rows: Row[]; noDeaths: boolean };
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
+/** ✅ ดึง disease จาก store แบบปลอดภัย */
+function getDiseaseFromStore(): string {
+  const s = useDashboardStore() as any;
+  return String(s?.diseaseCode ?? s?.disease ?? s?.disease_code ?? "").trim();
+}
+
 export default function CompareGenderDeathsChart() {
-  const { start_date, end_date, diseaseCode } = useDashboardStore(); // ✅ เพิ่ม diseaseCode
+  const { start_date, end_date } = useDashboardStore();
+  const disease = getDiseaseFromStore();
+
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -165,23 +175,27 @@ export default function CompareGenderDeathsChart() {
   const [noDeaths, setNoDeaths] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
+  const hasDisease = !!disease;
 
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
   const requestUrl = useMemo(() => {
-    if (!hasBoth) return "";
+    if (!hasBoth || !hasDisease) return "";
+
     const qs = new URLSearchParams();
-    qs.set("disease", diseaseCode || ""); // ✅ ส่งโรค
+    qs.set("disease", disease);
     qs.set("start_date", start_date || "");
     qs.set("end_date", end_date || "");
     qs.set("mainProvince", mainProvince!);
     qs.set("compareProvince", compareProvince!);
+
     return `/api/compareInfo/gender-deaths?${qs.toString()}`;
-  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
+  }, [hasBoth, hasDisease, disease, start_date, end_date, mainProvince, compareProvince]);
 
   useEffect(() => {
-    if (!hasBoth || !requestUrl) {
+    // ✅ reset state เมื่อเงื่อนไขไม่ครบ
+    if (!hasBoth) {
       setRows([]);
       setLoading(false);
       setError(null);
@@ -189,10 +203,21 @@ export default function CompareGenderDeathsChart() {
       return;
     }
 
-    // ✅ ถ้า request เปลี่ยน ให้ reset สถานะ “กำลังโหลด” + เคลียร์ error ก่อน
+    if (!hasDisease) {
+      setRows([]);
+      setLoading(false);
+      setError(null);
+      setNoDeaths(false);
+      return;
+    }
+
+    if (!requestUrl) return;
+
+    // ✅ เคลียร์ error ก่อน
     setError(null);
     setNoDeaths(false);
 
+    // ✅ cache
     const now = Date.now();
     const cached = cacheRef.current.get(requestUrl);
     if (cached && now - cached.at < CLIENT_CACHE_TTL_MS) {
@@ -201,9 +226,11 @@ export default function CompareGenderDeathsChart() {
       return;
     }
 
-    // ✅ ยกเลิก request เก่า (กันสลับค่าเร็ว ๆ แล้วค่าทับกัน)
-    const prev = inFlightRef.current.get(requestUrl);
-    if (prev) prev.abort();
+    // ✅ abort ทุก request ที่ค้างอยู่ก่อนยิงใหม่ (กัน response เก่ามาทับ)
+    for (const [, controller] of inFlightRef.current) {
+      controller.abort();
+    }
+    inFlightRef.current.clear();
 
     const ac = new AbortController();
     inFlightRef.current.set(requestUrl, ac);
@@ -220,9 +247,7 @@ export default function CompareGenderDeathsChart() {
 
         const text = await res.text().catch(() => "");
         if (!res.ok) {
-          throw new Error(
-            text || "โหลดข้อมูลเปรียบเทียบผู้เสียชีวิตแยกตามเพศไม่สำเร็จ"
-          );
+          throw new Error(text || "โหลดข้อมูลเปรียบเทียบผู้เสียชีวิตแยกตามเพศไม่สำเร็จ");
         }
 
         let json: unknown = {};
@@ -238,9 +263,7 @@ export default function CompareGenderDeathsChart() {
         const totalDeaths = sumSummary(main) + sumSummary(compare);
         const nd = totalDeaths === 0;
 
-        const built = nd
-          ? []
-          : buildRows(main, compare, mainProvince!, compareProvince!);
+        const built = nd ? [] : buildRows(main, compare, mainProvince!, compareProvince!);
 
         cacheRef.current.set(requestUrl, { at: Date.now(), rows: built, noDeaths: nd });
         setRows(built);
@@ -261,7 +284,7 @@ export default function CompareGenderDeathsChart() {
       ac.abort();
       inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, requestUrl, mainProvince, compareProvince]);
+  }, [hasBoth, hasDisease, requestUrl]);
 
   const xMax = useMemo(() => {
     let m = 0;
@@ -290,6 +313,14 @@ export default function CompareGenderDeathsChart() {
     );
   }
 
+  if (!hasDisease) {
+    return (
+      <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
+        (กรุณาเลือกโรคก่อน)
+      </div>
+    );
+  }
+
   return (
     <div className="rounded bg-white p-4 shadow">
       <h2 className="mb-1 text-base font-bold">{title}</h2>
@@ -304,9 +335,7 @@ export default function CompareGenderDeathsChart() {
         )}
 
         {!loading && noDeaths ? (
-          <p className="text-sm font-medium text-gray-700">
-            ไม่มีผู้เสียชีวิตในช่วงเวลานี้
-          </p>
+          <p className="text-sm font-medium text-gray-700">ไม่มีผู้เสียชีวิตในช่วงเวลานี้</p>
         ) : !loading && rows.length === 0 ? (
           <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
         ) : (
@@ -326,31 +355,14 @@ export default function CompareGenderDeathsChart() {
                 tickMargin={8}
               />
 
-              <YAxis
-                type="category"
-                dataKey="label"
-                width={180}
-                tick={{ fontSize: 12 }}
-              />
+              <YAxis type="category" dataKey="label" width={180} tick={{ fontSize: 12 }} />
 
-              <Tooltip
-                content={<CombinedGenderDeathsTooltip />}
-                wrapperStyle={{ zIndex: 10 }}
-                offset={12}
-              />
+              <Tooltip content={<CombinedGenderDeathsTooltip />} wrapperStyle={{ zIndex: 10 }} offset={12} />
 
-              <Bar
-                dataKey="value"
-                barSize={14}
-                radius={[4, 4, 4, 4]}
-                isAnimationActive={false}
-              >
+              <Bar dataKey="value" barSize={14} radius={[4, 4, 4, 4]} isAnimationActive={false}>
                 <LabelList dataKey="value" position="right" content={renderValueLabel} />
                 {rows.map((r, idx) => (
-                  <Cell
-                    key={`${r.provinceType}-${r.gender}-${idx}`}
-                    fill={colorForRow(r)}
-                  />
+                  <Cell key={`${r.provinceType}-${r.gender}-${idx}`} fill={colorForRow(r)} />
                 ))}
               </Bar>
             </BarChart>

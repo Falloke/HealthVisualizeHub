@@ -1,4 +1,3 @@
-// app/api/compareInfo/ai-narrative/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -7,7 +6,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body) {
+
+    if (!body || typeof body !== "object") {
       return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
     }
 
@@ -15,7 +15,10 @@ export async function POST(req: NextRequest) {
 
     const aiRes = await fetch(targetUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify(body),
       cache: "no-store",
     });

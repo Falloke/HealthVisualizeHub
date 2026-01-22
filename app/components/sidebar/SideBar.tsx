@@ -22,7 +22,7 @@ type Disease = {
 type SavedSearch = {
   id: number;
   searchName: string;
-  diseaseName: string;
+  diseaseName: string; // บางทีเป็น code หรือชื่อ
   province: string;
   provinceAlt: string;
   startDate: string;
@@ -39,6 +39,9 @@ function groupProvinces(provinces: Province[]): Record<string, Province[]> {
     return acc;
   }, {});
 }
+
+const DEFAULT_DISEASE_CODE = "D01";
+const DEFAULT_DISEASE_NAME_TH = "ไข้หวัดใหญ่";
 
 const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
 const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
@@ -106,6 +109,7 @@ function SidebarInner({
     end_date,
     setProvince,
     setDateRange,
+
     diseaseCode,
     setDisease,
   } = useDashboardStore();
@@ -130,12 +134,21 @@ function SidebarInner({
 
   const applySavedSearch = useCallback(
     (s: SavedSearch) => {
-      const found = diseases.find(
-        (d) => d.name_th === s.diseaseName || d.code === s.diseaseName
-      );
+      // ✅ savedSearch.diseaseName บางทีเป็น "ชื่อโรค" บางทีเป็น "D01"
+      const found =
+        diseases.find((d) => d.code === s.diseaseName) ||
+        diseases.find((d) => d.name_th === s.diseaseName);
 
-      if (found) setDisease(found.code, found.name_th);
-      else if (s.diseaseName) setDisease("", s.diseaseName);
+      if (found) {
+        setDisease(found.code, found.name_th);
+      } else {
+        // ✅ ห้าม setDisease("", ...) เพราะ diseaseCode จะว่าง
+        if (s.diseaseName && !/^D\d{2}$/i.test(s.diseaseName)) {
+          setDisease(DEFAULT_DISEASE_CODE, s.diseaseName);
+        } else {
+          setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+        }
+      }
 
       const pv = (s.provinceAlt || s.province || "").trim();
       if (pv) setProvince(pv);
@@ -148,7 +161,7 @@ function SidebarInner({
   );
 
   /* -----------------------------------------------------------
-   * ✅ Generate Narrative (หน้า Dashboard/Provincial)
+   * ✅ Generate Narrative
    * ----------------------------------------------------------- */
   const lastFireAtRef = useRef(0);
 
@@ -179,9 +192,6 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
-  /* -----------------------------------------------------------
-   * ✅ Generate Narrative (หน้า Compare)
-   * ----------------------------------------------------------- */
   const goGenerateCompareNarrative = useCallback(() => {
     const fire = () => {
       const now = Date.now();
@@ -231,7 +241,7 @@ function SidebarInner({
   }, []);
 
   /* -----------------------------------------------------------
-   * ✅ โหลดโรค (รวม event refresh)
+   * ✅ โหลดโรค
    * ----------------------------------------------------------- */
   const loadDiseases = useCallback(async () => {
     try {
@@ -241,23 +251,23 @@ function SidebarInner({
       const list = data.diseases || [];
       setDiseases(list);
 
-      // ✅ default ถ้ายังไม่เลือกโรค และไม่มี querystring disease
-      const qsDisease = searchParams.get("disease");
-      if (!diseaseCode && !qsDisease && list.length > 0) {
-        const d01 = list.find((d) => d.code === "D01");
+      // ✅ default ถ้ายังไม่มีโรคใน store
+      if (!diseaseCode && list.length > 0) {
+        const d01 = list.find((d) => d.code === DEFAULT_DISEASE_CODE);
         if (d01) setDisease(d01.code, d01.name_th);
         else setDisease(list[0].code, list[0].name_th);
       }
     } catch (e) {
       console.error("Error loading diseases:", e);
+      // fallback
+      if (!diseaseCode) setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
     }
-  }, [searchParams, diseaseCode, setDisease]);
+  }, [diseaseCode, setDisease]);
 
   useEffect(() => {
     void loadDiseases();
   }, [loadDiseases]);
 
-  // ✅ ฟัง event จาก DiseaseEditor เพื่อรีโหลด dropdown ทันที
   useEffect(() => {
     const handler = () => {
       void loadDiseases();
@@ -272,10 +282,11 @@ function SidebarInner({
    * ----------------------------------------------------------- */
   useEffect(() => {
     const qsDisease = searchParams.get("disease");
-    if (qsDisease && diseases.length > 0) {
-      const found = diseases.find((d) => d.code === qsDisease);
-      if (found) setDisease(found.code, found.name_th);
-    }
+    if (!qsDisease) return;
+    if (diseases.length === 0) return;
+
+    const found = diseases.find((d) => d.code === qsDisease);
+    if (found) setDisease(found.code, found.name_th);
   }, [searchParams, diseases, setDisease]);
 
   /* -----------------------------------------------------------
@@ -327,7 +338,7 @@ function SidebarInner({
         </optgroup>
       ));
 
-  // ✅ ชื่อโรคแบบ "ไทย (อังกฤษ)" โดยไม่โชว์ code
+  // ✅ ชื่อโรคแบบไทย (อังกฤษ) ไม่โชว์ code
   const diseaseLabel = useCallback((d: Disease) => {
     const th = (d.name_th || "").trim();
     const en = (d.name_en || "").trim();
@@ -338,25 +349,18 @@ function SidebarInner({
     <>
       <aside
         className={`
-          z-40
-          w-full max-w-xs
-          px-3 py-4
-          transition-transform duration-300 ease-in-out
-
+          z-40 w-full max-w-xs px-3 py-4 transition-transform duration-300 ease-in-out
           fixed inset-y-0 left-0 top-16
           ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}
-
           md:translate-x-0
-          md:sticky md:top-16 md:inset-y-auto md:left-auto md:self-start
+          md:sticky md:top-16 md:self-start
           md:h-[calc(100vh-4rem)]
         `}
       >
         <div
           className="
-            flex h-full flex-col gap-6
-            rounded-[36px]
-            bg-white px-6 py-6
-            overflow-y-auto overscroll-contain
+            flex h-full flex-col gap-6 rounded-[36px]
+            bg-white px-6 py-6 overflow-y-auto overscroll-contain
             shadow-[0_18px_30px_rgba(33,150,243,0.35)]
           "
         >
@@ -365,12 +369,13 @@ function SidebarInner({
             <label className="mb-1 block text-sm font-medium text-slate-800">
               เลือกโรค
             </label>
+
             <select
               value={diseaseCode}
               onChange={(e) => {
                 const code = e.target.value;
                 const d = diseases.find((x) => x.code === code);
-                setDisease(code, d?.name_th ?? "");
+                setDisease(code, d?.name_th ?? DEFAULT_DISEASE_NAME_TH);
               }}
               className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
             >
@@ -383,7 +388,7 @@ function SidebarInner({
             </select>
           </div>
 
-          {/* จังหวัด */}
+          {/* จังหวัด / compare จังหวัด */}
           {!isComparePage ? (
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-800">
@@ -461,7 +466,7 @@ function SidebarInner({
             </div>
           </div>
 
-          {/* การค้นหาที่บันทึกไว้ */}
+          {/* saved searches */}
           {!isComparePage && canSeeSaved && (
             <div className="border-t border-sky-100 pt-3">
               <label className="mb-1 block text-sm font-medium text-slate-800">
@@ -521,7 +526,7 @@ function SidebarInner({
             </div>
           )}
 
-          {/* ล่างสุดของ sidebar */}
+          {/* ปุ่ม Generate */}
           <div className="mt-auto pt-3 border-t border-sky-100">
             <div className="mb-2 text-center text-xs font-medium text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ
@@ -563,7 +568,7 @@ function SidebarInner({
         <Filter className="h-5 w-5" />
       </button>
 
-      {/* overlay บนมือถือ */}
+      {/* overlay */}
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/30 md:hidden"

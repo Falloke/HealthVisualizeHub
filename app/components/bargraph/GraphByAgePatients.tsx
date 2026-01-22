@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\components\bargraph\GraphByAgePatients.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -46,7 +45,6 @@ function colorByRisk(patients: number): string {
   return RISK_COLORS[3]; // ต่ำ
 }
 
-/** ✅ ข้อความ legend แบบย่อ */
 function riskLegendText() {
   const v = TH_NUMBER(THRESHOLD_VERY_HIGH);
   const h = TH_NUMBER(THRESHOLD_HIGH);
@@ -86,35 +84,53 @@ function AgeTooltip({
 }
 
 export default function GraphPatientsByAge() {
-  const { province, start_date, end_date } = useDashboardStore();
+  const { province, start_date, end_date, disease } = useDashboardStore() as any;
   const [data, setData] = useState<AgeData[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const provinceLabel = (province || "").trim();
+  const diseaseCode = (disease || "").trim(); // ✅ สำคัญมาก
+
   useEffect(() => {
-    if (!province) {
+    // ✅ ต้องมีทั้งจังหวัด + โรค ถึงจะยิง API
+    if (!provinceLabel || !diseaseCode) {
       setData([]);
       setLoading(false);
       return;
     }
+
+    let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
-        const url = `/api/dashBoard/age-group?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
-          province
-        )}`;
+
+        // ✅ ใส่ disease ไปด้วย
+        const url =
+          `/api/dashBoard/age-group` +
+          `?start_date=${encodeURIComponent(start_date)}` +
+          `&end_date=${encodeURIComponent(end_date)}` +
+          `&province=${encodeURIComponent(provinceLabel)}` +
+          `&disease=${encodeURIComponent(diseaseCode)}`;
+
         const res = await fetch(url, { cache: "no-store" });
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
+
         const json: AgeData[] = text ? JSON.parse(text) : [];
-        setData(json ?? []);
+        if (!cancelled) setData(json ?? []);
       } catch (err) {
         console.error("❌ Fetch error (age-group):", err);
-        setData([]);
+        if (!cancelled) setData([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [province, start_date, end_date]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [provinceLabel, diseaseCode, start_date, end_date]); // ✅ ใส่ diseaseCode ด้วย
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => Number(d.patients ?? 0)))),
@@ -126,10 +142,12 @@ export default function GraphPatientsByAge() {
   return (
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
-        ผู้ป่วยสะสมรายช่วงอายุ ({province || "—"})
+        ผู้ป่วยสะสมรายช่วงอายุ ({provinceLabel || "—"})
       </h4>
 
-      {loading ? (
+      {!diseaseCode ? (
+        <p className="text-sm text-gray-600">⚠️ กรุณาเลือกโรคก่อน</p>
+      ) : loading ? (
         <p>⏳ กำลังโหลด...</p>
       ) : (
         <ResponsiveContainer width="100%" height={400}>
@@ -163,10 +181,9 @@ export default function GraphPatientsByAge() {
               name="ผู้ป่วยสะสม"
               barSize={26}
               radius={[0, 6, 6, 0]}
-              fill={RISK_COLORS[3]} // default
+              fill={RISK_COLORS[3]}
               isAnimationActive={false}
             >
-              {/* ✅ สีรายแท่งตามความเสี่ยง */}
               {data.map((row, idx) => (
                 <Cell key={`cell-${idx}`} fill={colorByRisk(row.patients)} />
               ))}
@@ -191,7 +208,6 @@ export default function GraphPatientsByAge() {
         </ResponsiveContainer>
       )}
 
-      {/* ✅ เอากล่อง “ระดับความเสี่ยง” มาด้วย */}
       <div className="mt-2 rounded border px-3 py-2 text-sm">
         <div className="mb-1 font-semibold">ระดับความเสี่ยง</div>
 
@@ -230,7 +246,6 @@ export default function GraphPatientsByAge() {
         </div>
       </div>
 
-      {/* ✅ ข้อความอ้างอิง (เหมือนกราฟภูมิภาค) */}
       <p className="mt-2 text-xs text-gray-500">
         อ้างอิงเกณฑ์จาก DDC: สูงมาก {TH_NUMBER(THRESHOLD_VERY_HIGH)}+ ราย, สูง{" "}
         {TH_NUMBER(THRESHOLD_HIGH)} ถึง{" "}

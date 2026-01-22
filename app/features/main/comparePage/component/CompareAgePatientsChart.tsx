@@ -1,3 +1,4 @@
+// D:\HealtRiskHub\app\features\main\comparePage\component\CompareAgePatientsChart.tsx
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -59,9 +60,7 @@ const AgeCompareTooltip = React.memo(function AgeCompareTooltip({
       {compare && (
         <div className="text-gray-700">
           {compare.name} :{" "}
-          <span className="font-semibold">
-            {TH_NUMBER(Number(compare.value ?? 0))}
-          </span>{" "}
+          <span className="font-semibold">{TH_NUMBER(Number(compare.value ?? 0))}</span>{" "}
           ราย
         </div>
       )}
@@ -102,8 +101,7 @@ function normalizeRows(input: unknown): RowMerged[] {
   if (!input || typeof input !== "object") return [];
   const obj: any = input;
   if (obj.ok === false) return [];
-  const rows =
-    obj.rows ?? obj.data?.rows ?? obj.items ?? obj.data?.items ?? obj.data ?? null;
+  const rows = obj.rows ?? obj.data?.rows ?? obj.items ?? obj.data?.items ?? obj.data ?? null;
   if (Array.isArray(rows)) return rows as RowMerged[];
   return [];
 }
@@ -116,8 +114,16 @@ function sumPatients(rows: RowMerged[]) {
   return total;
 }
 
+/** ✅ ดึง disease จาก store แบบปลอดภัย */
+function getDiseaseFromStore(): string {
+  const s = useDashboardStore() as any;
+  return String(s?.diseaseCode ?? s?.disease ?? s?.disease_code ?? "").trim();
+}
+
 export default function CompareAgePatientsChart() {
-  const { start_date, end_date, diseaseCode } = useDashboardStore(); // ✅ เพิ่ม diseaseCode
+  const { start_date, end_date } = useDashboardStore();
+  const disease = getDiseaseFromStore();
+
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<RowMerged[]>([]);
@@ -126,25 +132,26 @@ export default function CompareAgePatientsChart() {
   const [fetchOk, setFetchOk] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
+  const hasDisease = !!disease;
 
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
   const requestUrl = useMemo(() => {
-    if (!hasBoth) return "";
+    if (!hasBoth || !hasDisease) return "";
 
     const sp = new URLSearchParams();
-    sp.set("disease", diseaseCode || ""); // ✅ ส่งโรคไปด้วย
+    sp.set("disease", disease);
     sp.set("start_date", start_date || "");
     sp.set("end_date", end_date || "");
     sp.set("mainProvince", mainProvince!);
     sp.set("compareProvince", compareProvince!);
 
     return `/api/compareInfo/age-group?${sp.toString()}`;
-  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
+  }, [hasBoth, hasDisease, disease, start_date, end_date, mainProvince, compareProvince]);
 
   useEffect(() => {
-    if (!hasBoth || !requestUrl) {
+    if (!hasBoth || !hasDisease || !requestUrl) {
       setRows([]);
       setLoading(false);
       setNoPatients(false);
@@ -179,8 +186,9 @@ export default function CompareAgePatientsChart() {
         });
 
         const text = await res.text().catch(() => "");
-        if (!res.ok)
+        if (!res.ok) {
           throw new Error(text || "โหลดข้อมูลเปรียบเทียบผู้ป่วยตามช่วงอายุไม่สำเร็จ");
+        }
 
         let json: unknown = {};
         try {
@@ -213,7 +221,7 @@ export default function CompareAgePatientsChart() {
       ac.abort();
       inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, requestUrl]);
+  }, [hasBoth, hasDisease, requestUrl]);
 
   const xMax = useMemo(() => {
     let m = 0;
@@ -227,9 +235,7 @@ export default function CompareAgePatientsChart() {
   }, [rows]);
 
   const title = useMemo(() => {
-    if (!hasBoth) {
-      return "เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (เลือกจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ)";
-    }
+    if (!hasBoth) return "เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (เลือกจังหวัดให้ครบ)";
     return `เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (${mainProvince} vs ${compareProvince})`;
   }, [hasBoth, mainProvince, compareProvince]);
 
@@ -241,6 +247,8 @@ export default function CompareAgePatientsChart() {
         <p className="mt-4 text-sm text-gray-500">
           (เลือกจังหวัดให้ครบ 2 จังหวัดจาก Sidebar ก่อน แล้วกราฟเปรียบเทียบจะปรากฏ)
         </p>
+      ) : !hasDisease ? (
+        <p className="mt-4 text-sm text-gray-500">(กรุณาเลือกโรคก่อน)</p>
       ) : (
         <div className="relative" aria-busy={loading} aria-live="polite">
           {loading && (
@@ -250,9 +258,7 @@ export default function CompareAgePatientsChart() {
           )}
 
           {!loading && fetchOk && noPatients ? (
-            <p className="text-sm font-medium text-gray-700">
-              ไม่มีผู้ป่วยในช่วงเวลานี้
-            </p>
+            <p className="text-sm font-medium text-gray-700">ไม่มีผู้ป่วยในช่วงเวลานี้</p>
           ) : !loading && rows.length === 0 ? (
             <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
           ) : (
@@ -278,8 +284,6 @@ export default function CompareAgePatientsChart() {
                   tick={{ fontSize: 12, fill: "#6B7280" }}
                 />
                 <Tooltip content={<AgeCompareTooltip />} />
-
-                {/* ✅ ซ่อน Legend ถ้าไม่มีผู้ป่วย */}
                 {!noPatients && <Legend wrapperStyle={{ fontSize: 12 }} />}
 
                 <Bar

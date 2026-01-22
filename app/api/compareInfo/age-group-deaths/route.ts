@@ -1,7 +1,6 @@
-// app/api/compareInfo/age-group-deaths/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
 
@@ -16,10 +15,27 @@ type RowMerged = {
 const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
 const AGE_SET = new Set<string>(AGE_ORDER as unknown as string[]);
 
-function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
-  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
-  return d;
+// ✅ CONFIG via ENV (เหมือนหน้า dashboard)
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim(); // เช่น "date"
+
+function parseYMDOrFallback(input: string | null, fallback: string) {
+  const raw = (input && input.trim()) || fallback;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
+}
+
+function ymdToUTCStart(ymd: string) {
+  return new Date(`${ymd}T00:00:00.000Z`);
+}
+function ymdToUTCEnd(ymd: string) {
+  return new Date(`${ymd}T23:59:59.999Z`);
+}
+
+function dateExpr(tableAlias: string, col: string, cast: string) {
+  const ref = sql.ref(`${tableAlias}.${col}`);
+  if (!cast) return ref;
+  return sql`${ref}::${sql.raw(cast)}`;
 }
 
 function normalizeAgeRange(v: unknown): string {
@@ -68,13 +84,120 @@ function mergeAgeData(main: AgeRow[], compare: AgeRow[]): RowMerged[] {
   return base.concat(extras);
 }
 
+/** ✅ รองรับ D01 / 01 / 1 / 001 / d01 */
+function diseaseCandidates(raw: string) {
+  const v = (raw || "").trim();
+  if (!v) return [];
+
+  const set = new Set<string>();
+  set.add(v);
+  set.add(v.toUpperCase());
+  set.add(v.toLowerCase());
+
+  let digits: string | null = null;
+  const m = v.match(/^d(\d+)$/i);
+  if (m?.[1]) digits = m[1];
+  if (!digits && /^\d+$/.test(v)) digits = v;
+
+  if (digits) {
+    const n = String(Number(digits));
+    const pad2 = n.padStart(2, "0");
+    const pad3 = n.padStart(3, "0");
+
+    set.add(n);
+    set.add(pad2);
+    set.add(pad3);
+
+    set.add(`D${n}`);
+    set.add(`D${pad2}`);
+    set.add(`D${pad3}`);
+
+    set.add(`d${n}`);
+    set.add(`d${pad2}`);
+    set.add(`d${pad3}`);
+  }
+
+  return Array.from(set).filter(Boolean);
+}
+
+/** ✅ resolve code จากตาราง diseases.code/name_th/name_en */
+async function resolveDiseaseCode(diseaseParam: string) {
+  const raw = (diseaseParam || "").trim();
+  if (!raw) return null;
+
+  const candidates = diseaseCandidates(raw);
+
+  const byCode = await db
+    .selectFrom("diseases")
+    .select(["code"])
+    .where("code", "in", candidates)
+    .executeTakeFirst();
+
+  if ((byCode as any)?.code) return String((byCode as any).code);
+
+  const byName = await db
+    .selectFrom("diseases")
+    .select(["code"])
+    .where((eb) =>
+      eb.or([
+        eb("name_th", "in", candidates),
+        eb("name_en", "in", candidates),
+      ])
+    )
+    .executeTakeFirst();
+
+  if ((byName as any)?.code) return String((byName as any).code);
+
+  return raw;
+}
+
+function isSafeIdent(s: string) {
+  return /^[a-z0-9_]+$/i.test(String(s || "").trim());
+}
+
+async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+  const resolved = await resolveDiseaseCode(diseaseParam);
+  if (!resolved) return null;
+
+  const candidates = diseaseCandidates(resolved);
+  if (candidates.length === 0) return null;
+
+  const row = await db
+    .selectFrom("disease_fact_tables")
+    .select(["schema_name", "table_name", "is_active"])
+    .where("disease_code", "in", candidates as any)
+    .where("is_active", "=", true)
+    .executeTakeFirst();
+
+  const schema = String((row as any)?.schema_name || "").trim();
+  const table = String((row as any)?.table_name || "").trim();
+
+  if (!schema || !table) return null;
+  if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
+
+  return { schema, table };
+}
+
 async function queryAgeDeaths(args: {
   start_date: string;
   end_date: string;
   provinceNameTh: string;
+  disease: string;
 }): Promise<AgeRow[]> {
-  const start = parseDateOrThrow(args.start_date, "start_date");
-  const end = parseDateOrThrow(args.end_date, "end_date");
+  // ✅ รองรับ cast วันเสียชีวิตแบบเดียวกับ dashboard
+  const startYMD = parseYMDOrFallback(args.start_date, "2024-01-01");
+  const endYMD = parseYMDOrFallback(args.end_date, "2024-12-31");
+
+  const startDate = ymdToUTCStart(startYMD);
+  const endDate = ymdToUTCEnd(endYMD);
+
+  const fact = await resolveFactTableByDisease(args.disease);
+  if (!fact) return [];
+
+  const resolved = await resolveDiseaseCode(args.disease);
+  if (!resolved) return [];
+  const diseaseIn = diseaseCandidates(resolved);
+  if (diseaseIn.length === 0) return [];
 
   const ageCase = sql<string>`
     CASE
@@ -90,26 +213,28 @@ async function queryAgeDeaths(args: {
     END
   `.as("ageRange");
 
+  const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
+  const compareStart = DEATH_DATE_CAST ? startYMD : startDate;
+  const compareEnd = DEATH_DATE_CAST ? endYMD : endDate;
+
   const rows = await db
-    .selectFrom("influenza_cases as ic")
-    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
-    .select([
-      ageCase,
-      sql<number>`COUNT(*)`.as("deaths"),
-    ])
-    .where("p.province_name_th", "=", args.provinceNameTh)
-    .where("ic.death_date_parsed", "is not", null)
-    .where("ic.death_date_parsed", ">=", start)
-    .where("ic.death_date_parsed", "<=", end)
+    .withSchema(fact.schema)
+    .selectFrom(`${fact.table} as ic` as any)
+    .select([ageCase, sql<number>`COUNT(*)::int`.as("deaths")])
+    .where("ic.province", "=", args.provinceNameTh)
+    .where("ic.disease_code", "in", diseaseIn as any)
+    .where(sql<boolean>`${deathDate} IS NOT NULL`)
+    .where(deathDate, ">=", compareStart as any)
+    .where(deathDate, "<=", compareEnd as any)
     .where(sql`ic.age_y IS NOT NULL`)
     .groupBy("ageRange")
     .execute();
 
   const map = new Map<string, number>();
-  for (const r of rows) {
-    const k = String((r as any).ageRange ?? "").trim();
+  for (const r of rows as any[]) {
+    const k = String(r.ageRange ?? "").trim();
     if (!k) continue;
-    map.set(k, Number((r as any).deaths ?? 0));
+    map.set(k, Number(r.deaths ?? 0));
   }
 
   const ordered: AgeRow[] = (AGE_ORDER as unknown as string[]).map((k) => ({
@@ -133,14 +258,21 @@ export async function GET(req: NextRequest) {
     const end_date = sp.get("end_date") ?? "";
     const mainProvince = sp.get("mainProvince") ?? "";
     const compareProvince = sp.get("compareProvince") ?? "";
+    const disease = (sp.get("disease") || sp.get("diseaseCode") || "").trim();
 
-    if (!start_date || !end_date || !mainProvince || !compareProvince) {
-      return NextResponse.json({ error: "missing required query params" }, { status: 400 });
+    if (!start_date || !end_date || !mainProvince || !compareProvince || !disease) {
+      return NextResponse.json(
+        {
+          error:
+            "missing required query params (start_date,end_date,mainProvince,compareProvince,disease)",
+        },
+        { status: 400 }
+      );
     }
 
     const [mainRows, compareRows] = await Promise.all([
-      queryAgeDeaths({ start_date, end_date, provinceNameTh: mainProvince }),
-      queryAgeDeaths({ start_date, end_date, provinceNameTh: compareProvince }),
+      queryAgeDeaths({ start_date, end_date, provinceNameTh: mainProvince, disease }),
+      queryAgeDeaths({ start_date, end_date, provinceNameTh: compareProvince, disease }),
     ]);
 
     const merged = mergeAgeData(mainRows, compareRows);
@@ -151,6 +283,9 @@ export async function GET(req: NextRequest) {
     });
   } catch (e: any) {
     console.error("❌ [compareInfo/age-group-deaths] error:", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

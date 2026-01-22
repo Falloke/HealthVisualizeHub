@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\components\bargraph\GraphRegionTop5.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,22 +19,10 @@ import {
   ValueLabelRight,
 } from "@/app/components/bargraph/GraphUtils";
 
-/** โครงตอบจาก API ที่ใช้ */
-type APIResp = {
-  region?: string; // อาจเป็น region_id ("1") หรือชื่อไทย
-  topPatients?: Array<{ province: string; patients: number | string }>;
-  selected?: {
-    province: string;
-    patients: number | string;
-    patientsRank?: number;
-    region?: string; // อาจเป็น region_id หรือชื่อไทย
-  };
-  selectedProvince?: {
-    province: string;
-    patients: number | string;
-    rank: number;
-    region?: string;
-  };
+type RegionRow = {
+  region_id: number;
+  region_name_th: string;
+  display_order: number;
 };
 
 type Row = {
@@ -45,21 +32,12 @@ type Row = {
   isSelected?: boolean;
 };
 
-type RegionRow = {
-  region_id: number;
-  region_name_th: string;
-  display_order: number;
-};
-
-/** ✅ พาเล็ตความเสี่ยง (มาก → น้อย) */
 const RISK_COLORS = ["#B00020", "#F4511E", "#FFB300", "#009688"] as const;
 
-/** ✅ เกณฑ์จำนวนผู้ป่วยอ้างอิง */
 const THRESHOLD_VERY_HIGH = 8000;
 const THRESHOLD_HIGH = 4000;
 const THRESHOLD_MEDIUM = 2000;
 
-/** ✅ กันค่าจาก API เป็น string มี comma เช่น "7,767" */
 function toNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (typeof v === "string") {
@@ -70,7 +48,6 @@ function toNumber(v: unknown): number {
   return 0;
 }
 
-/** ✅ สีตามเกณฑ์ (ไม่ไล่สี) */
 function colorByRisk(patients: unknown): string {
   const v = toNumber(patients);
   if (v >= THRESHOLD_VERY_HIGH) return RISK_COLORS[0];
@@ -79,7 +56,6 @@ function colorByRisk(patients: unknown): string {
   return RISK_COLORS[3];
 }
 
-/** ข้อความ legend แบบย่อ */
 function riskLegendText() {
   const v = TH_NUMBER(THRESHOLD_VERY_HIGH);
   const h = TH_NUMBER(THRESHOLD_HIGH);
@@ -108,22 +84,16 @@ function compactThai(s: string) {
     .toLowerCase();
 }
 
-/** ✅ แปลงชื่อภูมิภาคให้เป็นชื่อที่อยากแสดง */
 function prettyRegion(name: string): string {
   const s = (name || "").trim();
   if (!s) return "";
-
-  // เคสพิเศษ: กรุงเทพฯและปริมณฑล
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) return "กรุงเทพฯและปริมณฑล";
-
-  // ทำให้สั้นลง: "ภาคเหนือ" -> "เหนือ"
+  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล"))
+    return "กรุงเทพฯและปริมณฑล";
   const noPrefix = s.replace(/^ภาค\s*/i, "").trim();
-
   if (noPrefix === "ตะวันออกเฉียงเหนือ") return "ตะวันออกเฉียงเหนือ";
   return noPrefix;
 }
 
-/** ✅ ใช้ mapping จาก DB: รับได้ทั้ง region_id หรือชื่อไทย */
 function resolveRegionName(
   raw: unknown,
   byId: Record<string, string>,
@@ -132,15 +102,12 @@ function resolveRegionName(
   const s = String(raw ?? "").trim();
   if (!s) return "";
 
-  // ถ้าเป็นตัวเลข -> map ด้วย region_id
   const n = Number(s);
   if (Number.isFinite(n) && n > 0) return byId[String(n)] || s;
 
-  // ถ้ามีไทยอยู่แล้ว -> map ด้วย key
   const key = compactThai(s);
   if (byKey[key]) return byKey[key];
 
-  // fallback: เจอกรุงเทพ
   if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) {
     return byId["7"] || s;
   }
@@ -148,20 +115,68 @@ function resolveRegionName(
   return s;
 }
 
+/** ✅ ดึง topPatients แบบยืดหยุ่น รองรับ snake_case */
+function extractTopPatients(json: any) {
+  return (
+    (Array.isArray(json?.topPatients) ? json.topPatients : null) ??
+    (Array.isArray(json?.top_patients) ? json.top_patients : null) ??
+    (Array.isArray(json?.data?.topPatients) ? json.data.topPatients : null) ??
+    (Array.isArray(json?.data?.top_patients) ? json.data.top_patients : null) ??
+    []
+  );
+}
+
+/** ✅ selected แบบยืดหยุ่น */
+function extractSelected(json: any) {
+  return json?.selected ?? json?.data?.selected ?? json?.selected_province ?? null;
+}
+
+/** ✅ selectedProvince แบบยืดหยุ่น */
+function extractSelectedProvince(json: any) {
+  return (
+    json?.selectedProvince ??
+    json?.selected_province ??
+    json?.data?.selectedProvince ??
+    json?.data?.selected_province ??
+    null
+  );
+}
+
+/** ✅ region raw แบบยืดหยุ่น */
+function extractRegionRaw(json: any) {
+  return (
+    json?.regionId ??
+    json?.region_id ??
+    json?.region ??
+    json?.data?.regionId ??
+    json?.data?.region_id ??
+    json?.data?.region ??
+    json?.selected?.regionId ??
+    json?.selected?.region_id ??
+    json?.selected?.region ??
+    json?.selectedProvince?.regionId ??
+    json?.selectedProvince?.region_id ??
+    json?.selectedProvince?.region ??
+    ""
+  );
+}
+
 export default function GraphRegionTop5() {
   const start_date = useDashboardStore((s) => s.start_date);
   const end_date = useDashboardStore((s) => s.end_date);
   const province = useDashboardStore((s) => s.province);
+  const diseaseCode = useDashboardStore((s) => s.diseaseCode);
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Row[]>([]);
   const [apiRegionRaw, setApiRegionRaw] = useState<string>("");
+  const [err, setErr] = useState<string | null>(null);
 
-  // ✅ โหลด regions_moph (ครั้งเดียว)
   const [regionById, setRegionById] = useState<Record<string, string>>({});
   const [regionByKey, setRegionByKey] = useState<Record<string, string>>({});
   const regionsLoadedRef = useRef(false);
 
+  // โหลดชื่อภูมิภาค
   useEffect(() => {
     if (regionsLoadedRef.current) return;
     regionsLoadedRef.current = true;
@@ -173,18 +188,16 @@ export default function GraphRegionTop5() {
         if (!res.ok) throw new Error(text || "โหลด regions_moph ไม่สำเร็จ");
 
         const json = safeJson<any>(text, {});
-        const rows = (json?.rows ?? []) as RegionRow[];
+        const rr = (json?.rows ?? []) as RegionRow[];
 
         const byId: Record<string, string> = {};
         const byKey: Record<string, string> = {};
 
-        for (const r of rows) {
+        for (const r of rr) {
           const name = String(r.region_name_th ?? "").trim();
           if (!name) continue;
 
           byId[String(r.region_id)] = name;
-
-          // key จากชื่อเต็ม + ชื่อที่ตัดคำว่า "ภาค"
           byKey[compactThai(name)] = name;
           byKey[compactThai(name.replace(/^ภาค\s*/i, ""))] = name;
 
@@ -204,15 +217,23 @@ export default function GraphRegionTop5() {
     })();
   }, []);
 
-  // ✅ โหลดข้อมูลกราฟ
+  // โหลดข้อมูล topPatients
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
 
     (async () => {
       try {
-        // ถ้าไม่มีจังหวัด (เช่น หน้าเลือกยังไม่ครบ) ไม่ต้องยิง
-        if (!province) {
+        setErr(null);
+
+        if (!province || !province.trim()) {
+          setRows([]);
+          setApiRegionRaw("");
+          setLoading(false);
+          return;
+        }
+
+        if (!diseaseCode || !diseaseCode.trim()) {
           setRows([]);
           setApiRegionRaw("");
           setLoading(false);
@@ -224,76 +245,75 @@ export default function GraphRegionTop5() {
         const url =
           `/api/dashBoard/region-by-province?start_date=${encodeURIComponent(start_date || "")}` +
           `&end_date=${encodeURIComponent(end_date || "")}` +
-          `&province=${encodeURIComponent(province ?? "")}`;
+          `&province=${encodeURIComponent(province ?? "")}` +
+          `&disease=${encodeURIComponent(diseaseCode ?? "")}`;
 
         const res = await fetch(url, {
           signal: controller.signal,
-          headers: { Accept: "application/json" },
           cache: "no-store",
         });
 
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
 
-        const json = safeJson<APIResp>(text, {} as APIResp);
+        const json = safeJson<any>(text, {});
         if (cancelled) return;
 
-        const baseTop: Row[] = (json.topPatients ?? [])
-          .slice(0, 5)
-          .map((d, i) => ({
-            province: d.province,
-            patients: toNumber(d.patients),
-            rank: i + 1,
-          }));
+        const top = extractTopPatients(json);
+
+        const baseTop: Row[] = top.slice(0, 5).map((d: any, i: number) => ({
+          province: String(d?.province ?? ""),
+          patients: toNumber(d?.patients),
+          rank: i + 1,
+        }));
 
         let finalRows: Row[] = [...baseTop];
 
-        const sel = json.selected;
-        const extra = json.selectedProvince;
+        const sel = extractSelected(json);
+        const extra = extractSelectedProvince(json);
 
-        if (sel?.patientsRank) {
-          if (sel.patientsRank <= 5) {
-            const insertAt = Math.max(0, Math.min(4, sel.patientsRank - 1));
-            const already = finalRows.some((r) => r.province === sel.province);
+        const patientsRank = Number(sel?.patientsRank ?? sel?.patients_rank ?? 0);
+
+        if (patientsRank > 0) {
+          if (patientsRank <= 5) {
+            const already = finalRows.some(
+              (r) => compactThai(r.province) === compactThai(sel?.province)
+            );
 
             if (!already) {
+              const insertAt = Math.max(0, Math.min(4, patientsRank - 1));
               finalRows.splice(insertAt, 0, {
-                province: sel.province,
-                patients: toNumber(sel.patients),
-                rank: sel.patientsRank,
+                province: String(sel?.province ?? ""),
+                patients: toNumber(sel?.patients),
+                rank: patientsRank,
                 isSelected: true,
               });
               finalRows = finalRows.slice(0, 5);
             } else {
               finalRows = finalRows.map((r) =>
-                r.province === sel.province
-                  ? {
-                      ...r,
-                      isSelected: true,
-                      rank: sel.patientsRank,
-                      patients: toNumber(sel.patients),
-                    }
+                compactThai(r.province) === compactThai(sel?.province)
+                  ? { ...r, isSelected: true }
                   : r
               );
             }
-          } else if (extra && province) {
+          } else if (extra) {
+            const rk = Number(extra?.rank ?? extra?.patientsRank ?? extra?.patients_rank ?? 0);
             finalRows.push({
-              province: `${extra.province} (อันดับ ${extra.rank})`,
+              province: `${extra.province} (อันดับ ${rk})`,
               patients: toNumber(extra.patients),
-              rank: extra.rank,
+              rank: rk,
               isSelected: true,
             });
           }
         }
 
         setRows(finalRows);
-
-        // ✅ เก็บ region ที่ API ส่งมา (อาจเป็น id หรือชื่อ)
-        setApiRegionRaw(sel?.region || json.region || "");
-      } catch (err) {
-        if ((err as any)?.name === "AbortError") return;
-        console.error("❌ Fetch error (region top5):", err);
+        setApiRegionRaw(extractRegionRaw(json));
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        console.error("❌ Fetch error (region top5):", e);
         if (!cancelled) {
+          setErr("โหลดข้อมูลไม่สำเร็จ");
           setRows([]);
           setApiRegionRaw("");
         }
@@ -306,7 +326,7 @@ export default function GraphRegionTop5() {
       cancelled = true;
       controller.abort();
     };
-  }, [start_date, end_date, province]);
+  }, [start_date, end_date, province, diseaseCode]);
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...rows.map((d) => toNumber(d.patients)))),
@@ -337,7 +357,9 @@ export default function GraphRegionTop5() {
       <div className="mb-2 flex items-start justify-between gap-3">
         <h4 className="font-bold">{title}</h4>
         {province ? (
-          <span className="text-xs text-gray-500">จังหวัดที่เลือก: {province}</span>
+          <span className="text-xs text-gray-500">
+            จังหวัดที่เลือก: {province}
+          </span>
         ) : null}
       </div>
 
@@ -346,6 +368,14 @@ export default function GraphRegionTop5() {
       ) : !province ? (
         <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
           กรุณาเลือกจังหวัดก่อน เพื่อแสดง Top 5 ผู้ป่วยสะสมในภูมิภาค
+        </div>
+      ) : !diseaseCode ? (
+        <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
+          กรุณาเลือกโรคก่อน เพื่อแสดงข้อมูล Top 5
+        </div>
+      ) : err ? (
+        <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {err}
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
@@ -374,9 +404,13 @@ export default function GraphRegionTop5() {
               interval={0}
               tick={{ fontSize: 14 }}
             />
+
             <Tooltip
               content={
-                <ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />
+                <ProvinceCountTooltip
+                  seriesName="ผู้ป่วยสะสม"
+                  labelKey="province"
+                />
               }
             />
 
@@ -397,7 +431,6 @@ export default function GraphRegionTop5() {
         </ResponsiveContainer>
       )}
 
-      {/* Legend */}
       <div className="mt-2 rounded border px-3 py-2 text-sm">
         <div className="mb-1 font-semibold">ระดับความเสี่ยง</div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -437,8 +470,9 @@ export default function GraphRegionTop5() {
       <p className="mt-2 text-xs text-gray-500">
         อ้างอิงเกณฑ์จาก DDC: สูงมาก {TH_NUMBER(THRESHOLD_VERY_HIGH)}+ ราย, สูง{" "}
         {TH_NUMBER(THRESHOLD_HIGH)} ถึง {TH_NUMBER(THRESHOLD_VERY_HIGH - 1)} ราย,
-        ปานกลาง {TH_NUMBER(THRESHOLD_MEDIUM)} ถึง {TH_NUMBER(THRESHOLD_HIGH - 1)} ราย,
-        ต่ำ น้อยกว่า {TH_NUMBER(THRESHOLD_MEDIUM)} ราย
+        ปานกลาง {TH_NUMBER(THRESHOLD_MEDIUM)} ถึง{" "}
+        {TH_NUMBER(THRESHOLD_HIGH - 1)} ราย, ต่ำ น้อยกว่า{" "}
+        {TH_NUMBER(THRESHOLD_MEDIUM)} ราย
       </p>
     </div>
   );

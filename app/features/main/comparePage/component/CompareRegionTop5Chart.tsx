@@ -33,19 +33,14 @@ type APIResp = {
   ok?: boolean;
   sameRegion?: boolean;
 
-  // API อาจส่งมาเป็น "1".."7" หรือชื่อไทยเต็ม
-  mainRegion?: string;
-  compareRegion?: string;
-
   mainRows?: Row[];
   compareRows?: Row[];
   note?: string;
   error?: string;
 
+  // รองรับ payload แบบมี data
   data?: {
     sameRegion?: boolean;
-    mainRegion?: string;
-    compareRegion?: string;
     mainRows?: Row[];
     compareRows?: Row[];
     note?: string;
@@ -66,12 +61,6 @@ const RISK_COLORS = ["#B00020", "#F4511E", "#FFB300", "#009688"] as const;
 const THRESHOLD_VERY_HIGH = 8000;
 const THRESHOLD_HIGH = 4000;
 const THRESHOLD_MEDIUM = 2000;
-
-type RegionRow = {
-  region_id: number;
-  region_name_th: string;
-  display_order: number;
-};
 
 function colorByRisk(patients: number): string {
   const v = Number(patients || 0);
@@ -105,9 +94,8 @@ function normalize(resp: APIResp): APIResp {
   const d = resp.data ?? {};
   return {
     ok: resp.ok ?? true,
+    // ❗แก้: default ต้องเป็น false (ไม่ใช่ true) ไม่งั้นจะทำให้ logic เพี้ยน
     sameRegion: resp.sameRegion ?? d.sameRegion ?? false,
-    mainRegion: resp.mainRegion ?? d.mainRegion,
-    compareRegion: resp.compareRegion ?? d.compareRegion,
     mainRows: resp.mainRows ?? d.mainRows ?? [],
     compareRows: resp.compareRows ?? d.compareRows ?? [],
     note: resp.note ?? d.note,
@@ -121,64 +109,18 @@ function parsePrefetched(prefetched: unknown): APIResp | null {
 
   const p = prefetched as any;
 
+  // อาจส่งมาเป็นของ endpoint ตรง ๆ
   if ("mainRows" in p || "compareRows" in p || "data" in p) {
     return normalize(p as APIResp);
   }
 
+  // หรือผ่าน aggregate -> regionTop5
   const maybe = p.regionTop5 ?? p.region_top5 ?? p.top5ByRegion;
   if (maybe && typeof maybe === "object") {
     return normalize(maybe as APIResp);
   }
 
   return null;
-}
-
-function compactThai(s: string) {
-  return String(s ?? "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/ฯ/g, "")
-    .toLowerCase();
-}
-
-/** ✅ ทำชื่อให้สั้น/สวย */
-function prettyRegion(name: string): string {
-  const s = (name || "").trim();
-  if (!s) return "";
-
-  // เคสพิเศษ: กทม/ปริมณฑล
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) return "กรุงเทพฯและปริมณฑล";
-
-  // ตัดคำว่า "ภาค"
-  const noPrefix = s.replace(/^ภาค\s*/i, "").trim();
-
-  // normalize ถ้าต้องการ
-  if (noPrefix === "ตะวันออกเฉียงเหนือ") return "ตะวันออกเฉียงเหนือ";
-
-  return noPrefix;
-}
-
-/** ✅ รับได้ทั้ง region_id ("1") หรือชื่อไทย → คืนชื่อไทยเต็มจาก DB */
-function resolveRegionName(
-  raw: unknown,
-  byId: Record<string, string>,
-  byKey: Record<string, string>
-) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-
-  // ถ้าเป็นตัวเลข => region_id
-  const n = Number(s);
-  if (Number.isFinite(n) && n > 0) return byId[String(n)] || s;
-
-  // ถ้าเป็นชื่อไทย => map ด้วย key
-  const key = compactThai(s);
-  if (byKey[key]) return byKey[key];
-
-  // fallback case
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) return byId["7"] || s;
-
-  return s;
 }
 
 function compactName(s: string) {
@@ -189,10 +131,7 @@ function compactName(s: string) {
 }
 
 /** ✅ หาอันดับจังหวัดใน Top5 (ใช้ rank ถ้ามี, ไม่งั้น index+1) */
-function findRank(
-  rows: Row[] | undefined,
-  provinceName: string | undefined | null
-): number | null {
+function findRank(rows: Row[] | undefined, provinceName: string | undefined | null): number | null {
   if (!rows?.length || !provinceName) return null;
 
   const target = compactName(provinceName);
@@ -227,6 +166,7 @@ const ChartBlock = React.memo(function ChartBlock(props: {
   return (
     <div>
       <h4 className="mb-2 font-bold">{title}</h4>
+
       <div className="h-[360px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
@@ -289,53 +229,6 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
-  // ✅ region mapping จาก DB
-  const [regionById, setRegionById] = useState<Record<string, string>>({});
-  const [regionByKey, setRegionByKey] = useState<Record<string, string>>({});
-  const regionsLoadedRef = useRef(false);
-
-  useEffect(() => {
-    if (regionsLoadedRef.current) return;
-    regionsLoadedRef.current = true;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/ref/regions-moph", { cache: "no-store" });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "โหลด regions_moph ไม่สำเร็จ");
-
-        const json = text ? JSON.parse(text) : {};
-        const rows = (json?.rows ?? []) as RegionRow[];
-
-        const byId: Record<string, string> = {};
-        const byKey: Record<string, string> = {};
-
-        for (const r of rows) {
-          const name = String(r.region_name_th ?? "").trim();
-          if (!name) continue;
-
-          byId[String(r.region_id)] = name;
-
-          // key หลายแบบ เพื่อให้ match ได้ง่าย
-          byKey[compactThai(name)] = name;
-          byKey[compactThai(name.replace(/^ภาค\s*/i, ""))] = name;
-
-          if (name.includes("กรุงเทพ") || name.includes("ปริมณฑล")) {
-            byKey["กรุงเทพ"] = name;
-            byKey["กรุงเทพมหานครและปริมณฑล"] = name;
-          }
-        }
-
-        setRegionById(byId);
-        setRegionByKey(byKey);
-      } catch (e) {
-        console.error("❌ Load regions_moph error:", e);
-        setRegionById({});
-        setRegionByKey({});
-      }
-    })();
-  }, []);
-
   const requestUrl = useMemo(() => {
     if (!hasBoth) return "";
     const qs = new URLSearchParams({
@@ -348,7 +241,7 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
     return `/api/compareInfo/region-top5?${qs}`;
   }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
-  // ใช้ prefetched ก่อน
+  // ✅ ใช้ prefetched ก่อน (ถ้ามี)
   useEffect(() => {
     const parsed = parsePrefetched(prefetched);
     if (parsed) {
@@ -373,6 +266,7 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
       return;
     }
 
+    // ✅ กันยิงซ้ำ URL เดิมพร้อมกัน
     if (inFlightRef.current.has(requestUrl)) return;
 
     const ac = new AbortController();
@@ -390,13 +284,9 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
         });
 
         const text = await res.text().catch(() => "");
-        if (!res.ok) throw new Error(text || "โหลดข้อมูลเปรียบเทียบภูมิภาคไม่สำเร็จ");
+        if (!res.ok) throw new Error(text || "โหลดข้อมูล Top5 ไม่สำเร็จ");
 
-        const raw = safeJson<APIResp>(text, {
-          ok: false,
-          mainRows: [],
-          compareRows: [],
-        });
+        const raw = safeJson<APIResp>(text, { ok: false, mainRows: [], compareRows: [] });
 
         if (raw.ok === false) throw new Error(raw.error || "ไม่สามารถโหลดข้อมูลเปรียบเทียบได้");
 
@@ -406,7 +296,7 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
         setData(json);
       } catch (err: any) {
         if (err?.name === "AbortError") return;
-        console.error("❌ Fetch error (compare region top5):", err);
+        console.error("❌ Fetch error (compareInfo/region-top5):", err);
         setError(err?.message || "ไม่สามารถโหลดข้อมูลเปรียบเทียบได้");
       } finally {
         inFlightRef.current.delete(requestUrl);
@@ -422,6 +312,7 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
 
   const legend = useMemo(() => riskLegendText(), []);
 
+  // ✅ ดึงทั้ง mainRows และ compareRows
   const mainRowsRaw = data?.mainRows ?? [];
   const compareRowsRaw = data?.compareRows ?? [];
 
@@ -435,12 +326,11 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
     [compareRowsRaw]
   );
 
-  const sameRegion = !!data?.sameRegion;
-
   const xMaxMain = useMemo(
     () => niceMax(Math.max(0, ...mainRows.map((d) => Number(d.patients ?? 0)))),
     [mainRows]
   );
+
   const xMaxCompare = useMemo(
     () => niceMax(Math.max(0, ...compareRows.map((d) => Number(d.patients ?? 0)))),
     [compareRows]
@@ -456,55 +346,26 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
     return Math.min(220, Math.max(120, longest * 10));
   }, [compareRows]);
 
-  // ✅ Title + ดึงชื่อภูมิภาคจาก DB mapping
+  // ✅ Title: กราฟซ้าย = top5 ของภูมิภาคจังหวัดหลัก
   const titleMain = useMemo(() => {
-    const regFull = resolveRegionName(data?.mainRegion, regionById, regionByKey);
-    const reg = regFull ? prettyRegion(regFull) : "";
-
     const rankMain = findRank(mainRowsRaw, mainProvince);
-    const rankCompareInSame = sameRegion ? findRank(mainRowsRaw, compareProvince) : null;
+    return `Top 5 ผู้ป่วยสะสม (ภูมิภาคของจังหวัดหลัก) — ${mainProvince || "—"} อันดับ ${rankMain ?? "—"}`;
+  }, [mainRowsRaw, mainProvince]);
 
-    if (sameRegion) {
-      const a = mainProvince || "—";
-      const b = compareProvince || "—";
-      return reg
-        ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${a} อยู่ลำดับที่ ${rankMain ?? "—"} • ${b} อยู่ลำดับที่ ${
-            rankCompareInSame ?? "—"
-          })`
-        : `Top 5 ผู้ป่วยสะสมในภูมิภาคเดียวกัน (${a} • ${b})`;
-    }
-
-    return reg
-      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${mainProvince || "—"} อยู่ลำดับที่ ${rankMain ?? "—"})`
-      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดหลัก (${mainProvince || "—"})`;
-  }, [
-    data?.mainRegion,
-    sameRegion,
-    mainRowsRaw,
-    mainProvince,
-    compareProvince,
-    regionById,
-    regionByKey,
-  ]);
-
+  // ✅ Title: กราฟขวา = top5 ของภูมิภาคจังหวัดที่เปรียบเทียบ
   const titleCompare = useMemo(() => {
-    if (sameRegion) return "";
+    const rankCompare = findRank(compareRowsRaw, compareProvince);
+    return `Top 5 ผู้ป่วยสะสม (ภูมิภาคของจังหวัดที่เปรียบเทียบ) — ${compareProvince || "—"} อันดับ ${
+      rankCompare ?? "—"
+    }`;
+  }, [compareRowsRaw, compareProvince]);
 
-    const regFull = resolveRegionName(data?.compareRegion, regionById, regionByKey);
-    const reg = regFull ? prettyRegion(regFull) : "";
-
-    const rank = findRank(compareRowsRaw, compareProvince);
-
-    return reg
-      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${compareProvince || "—"} อยู่ลำดับที่ ${rank ?? "—"})`
-      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดที่เปรียบเทียบ (${compareProvince || "—"})`;
-  }, [data?.compareRegion, sameRegion, compareRowsRaw, compareProvince, regionById, regionByKey]);
+  const showTwoCharts = compareRows.length > 0;
 
   if (!hasBoth) {
     return (
       <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
-        (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar ให้ครบก่อน
-        เพื่อดูกราฟเปรียบเทียบภูมิภาค)
+        (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar ให้ครบก่อน เพื่อดูกราฟ Top 5)
       </div>
     );
   }
@@ -522,11 +383,8 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
 
             {!loading && (!data || mainRows.length === 0) ? (
               <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
-            ) : sameRegion || compareRows.length === 0 ? (
-              <div className="mb-6">
-                <ChartBlock title={titleMain} rows={mainRows} xMax={xMaxMain} yWidth={yWidthMain} />
-              </div>
-            ) : (
+            ) : showTwoCharts ? (
+              // ✅ แบบที่ 2: แสดง 2 กราฟ
               <div className="mb-6 grid gap-6 lg:grid-cols-2">
                 <ChartBlock title={titleMain} rows={mainRows} xMax={xMaxMain} yWidth={yWidthMain} />
                 <ChartBlock
@@ -535,6 +393,11 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
                   xMax={xMaxCompare}
                   yWidth={yWidthCompare}
                 />
+              </div>
+            ) : (
+              // ✅ fallback: ถ้า API ส่งมาแค่ mainRows
+              <div className="mb-6">
+                <ChartBlock title={titleMain} rows={mainRows} xMax={xMaxMain} yWidth={yWidthMain} />
               </div>
             )}
 

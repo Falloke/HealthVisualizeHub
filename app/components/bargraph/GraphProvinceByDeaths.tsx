@@ -1,3 +1,4 @@
+// app/components/bargraph/GraphProvinceByDeaths.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -27,7 +28,6 @@ type DeathsSummary = {
   cumulativeDeaths: number | string;
 };
 
-// ✅ ไม่ล็อกความสูงการ์ดแล้ว (แก้ปัญหาช่องว่างเยอะ)
 const HEADER_MIN_H = 64;
 const CHART_H = 160;
 
@@ -57,7 +57,7 @@ function OneLineTick({ x, y, payload }: any) {
 }
 
 export default function GraphProvinceByDeaths() {
-  const { province, start_date, end_date } = useDashboardStore();
+  const { province, start_date, end_date, diseaseCode } = useDashboardStore();
 
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<DeathsSummary | null>(null);
@@ -72,10 +72,20 @@ export default function GraphProvinceByDeaths() {
         setLoading(true);
         setError(null);
 
+        // ✅ ถ้าไม่มีโรค -> ไม่ยิง API
+        if (!diseaseCode || !diseaseCode.trim()) {
+          if (!cancelled) {
+            setRows([{ label: province || "รวม", value: 0 }]);
+            setSummary(null);
+          }
+          return;
+        }
+
         const qs = new URLSearchParams({
           start_date: start_date || "",
           end_date: end_date || "",
           province: province || "",
+          disease: diseaseCode || "",
         }).toString();
 
         const [genderRes, sumRes] = await Promise.all([
@@ -83,7 +93,10 @@ export default function GraphProvinceByDeaths() {
           fetch(`/api/dashBoard/deaths-summary?${qs}`, { cache: "no-store" }),
         ]);
 
-        if (!genderRes.ok) throw new Error("โหลดข้อมูลผู้เสียชีวิตไม่สำเร็จ");
+        if (!genderRes.ok) {
+          const t = await genderRes.text().catch(() => "");
+          throw new Error(t || "โหลดข้อมูลผู้เสียชีวิตไม่สำเร็จ");
+        }
         const json: GenderRow[] = await genderRes.json();
 
         const total = (json ?? []).reduce((s, r) => s + toNumber(r.value), 0);
@@ -111,7 +124,7 @@ export default function GraphProvinceByDeaths() {
     return () => {
       cancelled = true;
     };
-  }, [province, start_date, end_date]);
+  }, [province, start_date, end_date, diseaseCode]);
 
   const xMax = useMemo(() => niceMax(toNumber(rows[0]?.value ?? 0)), [rows]);
   const headerProvince = province || rows[0]?.label || "—";
@@ -139,13 +152,17 @@ export default function GraphProvinceByDeaths() {
         ) : error ? (
           <p className="mt-1 text-sm text-red-600">{error}</p>
         ) : !summary ? (
-          <p className="mt-1 text-sm text-gray-500">ไม่พบข้อมูลผู้เสียชีวิตในช่วงเวลานี้</p>
+          <p className="mt-1 text-sm text-gray-500">
+            ไม่พบข้อมูลผู้เสียชีวิตในช่วงเวลานี้
+          </p>
         ) : (
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-gray-900 leading-none">
               {toNumber(summary.totalDeaths).toLocaleString()}
             </span>
-            <span className="text-base font-normal text-gray-800 leading-none">ราย</span>
+            <span className="text-base font-normal text-gray-800 leading-none">
+              ราย
+            </span>
 
             <span className="ml-2 text-xs font-normal text-gray-700 sm:text-sm leading-none truncate">
               เฉลี่ยวันละ{" "}
@@ -200,7 +217,12 @@ export default function GraphProvinceByDeaths() {
               />
 
               <Tooltip
-                content={<ProvinceCountTooltip seriesName="ผู้เสียชีวิตสะสม" labelKey="label" />}
+                content={
+                  <ProvinceCountTooltip
+                    seriesName="ผู้เสียชีวิตสะสม"
+                    labelKey="label"
+                  />
+                }
                 wrapperStyle={{ zIndex: 10 }}
                 cursor={{ fill: "rgba(0,0,0,0.04)" }}
                 offset={12}

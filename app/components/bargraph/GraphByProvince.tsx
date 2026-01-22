@@ -55,24 +55,34 @@ export default function GraphByProvince({
 }: {
   compact?: boolean;
 }) {
-  const { province, start_date, end_date } = useDashboardStore();
+  const { start_date, end_date, diseaseCode } = useDashboardStore();
   const [raw, setRaw] = useState<RegionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let aborted = false;
+
     (async () => {
       try {
         setLoading(true);
         setErr(null);
-        const url = `/api/dashBoard/region?start_date=${encodeURIComponent(
-          start_date
-        )}&end_date=${encodeURIComponent(end_date)}&province=${encodeURIComponent(
-          province || ""
-        )}`;
+
+        // ✅ ถ้าไม่เลือกโรค ยังไม่ยิง API
+        if (!diseaseCode || !diseaseCode.trim()) {
+          if (!aborted) setRaw([]);
+          return;
+        }
+
+        const url =
+          `/api/dashBoard/region` +
+          `?start_date=${encodeURIComponent(start_date)}` +
+          `&end_date=${encodeURIComponent(end_date)}` +
+          `&disease=${encodeURIComponent(diseaseCode)}`;
+
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const json = (await res.json()) as RegionData[];
         if (!aborted) setRaw(Array.isArray(json) ? json : []);
       } catch (e) {
@@ -82,10 +92,11 @@ export default function GraphByProvince({
         if (!aborted) setLoading(false);
       }
     })();
+
     return () => {
       aborted = true;
     };
-  }, [province, start_date, end_date]);
+  }, [start_date, end_date, diseaseCode]);
 
   const data = useMemo(() => normalizeRegions(raw), [raw]);
 
@@ -167,14 +178,21 @@ export default function GraphByProvince({
     domainRight: number;
     useCompactTick?: boolean;
   }) => (
-    <section className={`rounded-lg border bg-white ${PAD} shadow-sm overflow-hidden`}>
+    <section
+      className={`rounded-lg border bg-white ${PAD} shadow-sm overflow-hidden`}
+    >
       <h4 className={`mb-1.5 font-bold ${TITLE}`}>{title}</h4>
       <div className="w-full" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
             layout="vertical"
-            margin={{ top: M_TOP, right: M_RIGHT, bottom: M_BOTTOM, left: M_LEFT }}
+            margin={{
+              top: M_TOP,
+              right: M_RIGHT,
+              bottom: M_BOTTOM,
+              left: M_LEFT,
+            }}
             barCategoryGap={BAR_GAP}
             barSize={BAR_SIZE}
           >
@@ -198,11 +216,13 @@ export default function GraphByProvince({
               tick={{ fontSize: TICK_FS }}
             />
 
-            {/* ✅ Tooltip แสดงชื่อภาษาไทยแทน patients/deaths */}
             <Tooltip
               formatter={(value: any, name: any) => {
                 const n = Number(value ?? 0);
-                return [n.toLocaleString(), tooltipNameTH(name)] as [string, string];
+                return [
+                  n.toLocaleString(),
+                  tooltipNameTH(name),
+                ] as [string, string];
               }}
               labelStyle={{ fontSize: 12 }}
               itemStyle={{ fontSize: 12 }}

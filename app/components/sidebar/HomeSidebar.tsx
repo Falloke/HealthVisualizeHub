@@ -1,3 +1,4 @@
+// D:\HealtRiskHub\app\components\sidebar\HomeSidebar.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,8 +32,14 @@ export default function HomeSidebar() {
   const { status } = useSession();
   const isAuthed = status === "authenticated";
 
-  const { start_date, end_date, setDateRange, diseaseCode, setDisease, setProvince } =
-    useDashboardStore();
+  const {
+    start_date,
+    end_date,
+    setDateRange,
+    diseaseCode,
+    setDisease,
+    setProvince,
+  } = useDashboardStore();
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -51,6 +58,7 @@ export default function HomeSidebar() {
     return parts.join(" • ");
   }, []);
 
+  // ✅ ชื่อโรคแบบ "ไทย (อังกฤษ)" โดยไม่โชว์ code
   const diseaseLabel = useCallback((d: Disease) => {
     const th = (d.name_th || "").trim();
     const en = (d.name_en || "").trim();
@@ -59,9 +67,19 @@ export default function HomeSidebar() {
 
   const applySavedSearch = useCallback(
     (s: SavedSearch) => {
-      const d = diseases.find((x) => x.name_th === s.diseaseName || x.code === s.diseaseName);
-      if (d) setDisease(d.code, d.name_th);
-      else if (s.diseaseName) setDisease(DEFAULT_DISEASE_CODE, s.diseaseName);
+      // ✅ savedSearch.diseaseName บางทีเป็น "ชื่อโรค" บางทีเป็น "D01"
+      const d =
+        diseases.find((x) => x.name_th === s.diseaseName) ||
+        diseases.find((x) => x.code === s.diseaseName);
+
+      if (d) {
+        setDisease(d.code, d.name_th);
+      } else {
+        // ✅ fallback: ถ้ามีชื่อโรค -> ใช้ default code แต่เก็บชื่อให้ AI ได้
+        // (อย่างน้อย AI จะไม่เห็นเป็น Dxx)
+        if (s.diseaseName) setDisease(DEFAULT_DISEASE_CODE, s.diseaseName);
+        else setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+      }
 
       const pv = (s.provinceAlt || s.province || "").trim();
       if (pv) setProvince(pv);
@@ -72,7 +90,7 @@ export default function HomeSidebar() {
     [diseases, router, setDateRange, setDisease, setProvince]
   );
 
-  // ✅ ปุ่ม Generate ที่หัวกล่อง (ยิง event ไปให้หน้า PageDescription)
+  // ✅ ปุ่ม Generate (ยิง event ไปให้หน้า PageDescription)
   const lastFireAtRef = useRef(0);
   const fireHomeNarrative = useCallback(() => {
     const now = Date.now();
@@ -83,10 +101,8 @@ export default function HomeSidebar() {
     window.dispatchEvent(new Event(HOME_NARRATIVE_EVENT));
   }, []);
 
-  // init date + disease from query
+  // ✅ init date
   useEffect(() => {
-    const qsDisease = searchParams.get("disease");
-
     if (!start_date && !end_date) {
       setDateRange(DEFAULT_START, DEFAULT_END);
     } else if (start_date && !end_date) {
@@ -94,19 +110,15 @@ export default function HomeSidebar() {
     } else if (!start_date && end_date) {
       setDateRange(DEFAULT_START, end_date);
     }
-
-    if (!diseaseCode) {
-      if (qsDisease) setDisease(qsDisease, "");
-      else setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // load diseases
+  // ✅ load diseases แล้วค่อย setDisease ให้ถูกต้อง (สำคัญมาก)
   useEffect(() => {
     (async () => {
       try {
         setDiseaseErr(null);
+
         const res = await fetch("/api/diseases", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -114,12 +126,13 @@ export default function HomeSidebar() {
         const rows = Array.isArray(data) ? data : data?.diseases || [];
         setDiseases(rows);
 
-        const qs = searchParams.get("disease");
-        const targetCode = qs || diseaseCode || DEFAULT_DISEASE_CODE;
+        // ✅ ถ้ามี querystring disease ให้ใช้มันก่อน
+        const qsDisease = searchParams.get("disease");
+        const targetCode = qsDisease || diseaseCode || DEFAULT_DISEASE_CODE;
 
         const hit =
-          rows.find((d) => d.code === targetCode) ??
-          rows.find((d) => d.code === DEFAULT_DISEASE_CODE) ??
+          rows.find((d) => d.code === targetCode) ||
+          rows.find((d) => d.code === DEFAULT_DISEASE_CODE) ||
           rows[0];
 
         if (hit) setDisease(hit.code, hit.name_th);
@@ -127,7 +140,7 @@ export default function HomeSidebar() {
       } catch (e) {
         console.error("โหลด /api/diseases ไม่สำเร็จ:", e);
         setDiseaseErr("โหลดรายการโรคไม่สำเร็จ");
-        if (!diseaseCode) setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+        setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,8 +153,10 @@ export default function HomeSidebar() {
       try {
         setSavedLoading(true);
         setSavedErr(null);
+
         const res = await fetch("/api/saved-searches", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const json = (await res.json()) as SavedSearch[];
         setSavedSearches(json);
       } catch (e) {
@@ -158,13 +173,12 @@ export default function HomeSidebar() {
   return (
     <section className="w-full">
       <div className="rounded-[28px] bg-white px-6 py-5 shadow-[0_18px_45px_rgba(33,150,243,0.25)] ring-1 ring-sky-100">
-        {/* ✅ หัวกล่อง + (คำอธิบาย AI Narrative + ปุ่ม Generate) */}
+        {/* หัวกล่อง */}
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-900">ตัวกรองข้อมูล</h3>
           </div>
 
-          {/* ✅ มุมขวา: ข้อความอยู่เหนือปุ่ม */}
           <div className="flex shrink-0 flex-col items-end gap-2">
             <div className="text-xs font-semibold text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ
@@ -192,14 +206,15 @@ export default function HomeSidebar() {
               onChange={(e) => {
                 const code = e.target.value;
                 const d = diseases.find((x) => x.code === code);
-                setDisease(code, d?.name_th ?? "");
+                setDisease(code, d?.name_th ?? DEFAULT_DISEASE_NAME_TH);
               }}
               className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
             >
-              {diseases.length === 0 && <option value={diseaseCode || ""}>กำลังโหลด...</option>}
+              {diseases.length === 0 && (
+                <option value={diseaseCode || ""}>กำลังโหลด...</option>
+              )}
               {diseases.map((d) => (
                 <option key={d.code} value={d.code}>
-                  {/* ✅ ไม่โชว์ D01/D02/... */}
                   {diseaseLabel(d)}
                 </option>
               ))}
@@ -241,7 +256,7 @@ export default function HomeSidebar() {
             </div>
           </div>
 
-          {/* การค้นหาที่บันทึกไว้ (เฉพาะ login) */}
+          {/* การค้นหาที่บันทึกไว้ */}
           <div className="md:col-span-3">
             {isAuthed ? (
               <div className="h-full">
@@ -254,7 +269,9 @@ export default function HomeSidebar() {
                     กำลังโหลด...
                   </div>
                 ) : savedErr ? (
-                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{savedErr}</div>
+                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                    {savedErr}
+                  </div>
                 ) : savedSearches.length > 0 ? (
                   <div className="flex items-center gap-2">
                     <select
