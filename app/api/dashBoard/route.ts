@@ -5,6 +5,7 @@ import { sql } from "kysely";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // ----------------------
 // ✅ Helpers (YMD + UTC)
@@ -96,8 +97,7 @@ export async function GET(request: NextRequest) {
     const province = (params.get("province") || "").trim(); // optional
     const disease = pickDisease(params);
 
-    // ✅ FIX: ถ้าไม่มี disease อย่า return 400
-    // เพราะหน้า Home/Map/Narrative อาจยิง API ก่อน disease ใน store จะถูก set เสร็จ
+    // ✅ ถ้าไม่มี disease -> คืน 0 (กันยิงก่อน store set)
     if (!disease) {
       return NextResponse.json(zeroPayload(province || null, null), {
         status: 200,
@@ -107,7 +107,6 @@ export async function GET(request: NextRequest) {
 
     const fact = await resolveFactTable(disease);
     if (!fact) {
-      // ✅ หา table ไม่เจอ -> คืน 0 (กันกราฟพัง)
       return NextResponse.json(zeroPayload(province || null, disease), {
         status: 200,
         headers: { "Content-Type": "application/json" },

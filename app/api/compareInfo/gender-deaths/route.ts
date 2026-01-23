@@ -3,6 +3,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type GenderCounts = { male: number; female: number; unknown: number };
 type GenderSummary = { province: string } & GenderCounts;
@@ -107,7 +109,9 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(String(s || "").trim());
 }
 
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
@@ -164,7 +168,9 @@ async function queryGenderDeaths(opts: {
     .selectFrom(`${fact.table} as ic` as any)
     .select(() => [
       sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('m','male','ชาย'))::int`.as("male"),
-      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('f','female','หญิง'))::int`.as("female"),
+      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('f','female','หญิง'))::int`.as(
+        "female"
+      ),
       sql<number>`COUNT(*) FILTER (
         WHERE ${g} NOT IN ('m','male','ชาย','f','female','หญิง')
       )::int`.as("unknown"),
@@ -202,7 +208,12 @@ export async function GET(req: NextRequest) {
 
     const [mainCounts, compareCounts] = await Promise.all([
       queryGenderDeaths({ start_date, end_date, provinceNameTh: mainProvince, disease }),
-      queryGenderDeaths({ start_date, end_date, provinceNameTh: compareProvince, disease }),
+      queryGenderDeaths({
+        start_date,
+        end_date,
+        provinceNameTh: compareProvince,
+        disease,
+      }),
     ]);
 
     return NextResponse.json<APIResp>(
@@ -213,7 +224,10 @@ export async function GET(req: NextRequest) {
       },
       {
         status: 200,
-        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
       }
     );
   } catch (e: any) {

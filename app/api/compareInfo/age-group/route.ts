@@ -3,6 +3,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type AgeRow = { ageRange: string; patients: number };
 
@@ -15,10 +17,17 @@ type RowMerged = {
 const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
 const AGE_SET = new Set<string>(AGE_ORDER as unknown as string[]);
 
-function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
-  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
-  return d;
+// -------------------- Date helpers --------------------
+function parseYMDOrFallback(input: string | null, fallback: string) {
+  const raw = (input && input.trim()) || fallback;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
+}
+function ymdToUTCStart(ymd: string) {
+  return new Date(`${ymd}T00:00:00.000Z`);
+}
+function ymdToUTCEnd(ymd: string) {
+  return new Date(`${ymd}T23:59:59.999Z`);
 }
 
 function normalizeAgeRange(v: unknown): string {
@@ -114,7 +123,7 @@ async function resolveDiseaseCode(diseaseParam: string) {
   const byCode = await db
     .selectFrom("diseases")
     .select(["code"])
-    .where("code", "in", candidates)
+    .where("code", "in", candidates as any)
     .executeTakeFirst();
 
   if ((byCode as any)?.code) return String((byCode as any).code);
@@ -125,8 +134,8 @@ async function resolveDiseaseCode(diseaseParam: string) {
     .select(["code"])
     .where((eb) =>
       eb.or([
-        eb("name_th", "in", candidates),
-        eb("name_en", "in", candidates),
+        eb("name_th", "in", candidates as any),
+        eb("name_en", "in", candidates as any),
       ])
     )
     .executeTakeFirst();
@@ -143,7 +152,9 @@ function isSafeIdent(s: string) {
 }
 
 /** ✅ resolve fact table จาก public.disease_fact_tables */
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
@@ -172,13 +183,15 @@ async function queryAgePatients(args: {
   provinceNameTh: string;
   disease: string;
 }): Promise<AgeRow[]> {
-  const start = parseDateOrThrow(args.start_date, "start_date");
-  const end = parseDateOrThrow(args.end_date, "end_date");
+  const startYMD = parseYMDOrFallback(args.start_date, "2024-01-01");
+  const endYMD = parseYMDOrFallback(args.end_date, "2024-12-31");
+
+  const startDate = ymdToUTCStart(startYMD);
+  const endDate = ymdToUTCEnd(endYMD);
 
   const fact = await resolveFactTableByDisease(args.disease);
   if (!fact) return [];
 
-  // ✅ ทำ candidates เผื่อ data เก็บหลายแบบ
   const resolved = await resolveDiseaseCode(args.disease);
   if (!resolved) return [];
   const diseaseIn = diseaseCandidates(resolved);
@@ -203,8 +216,8 @@ async function queryAgePatients(args: {
     .selectFrom(`${fact.table} as ic` as any)
     .select([ageCase, sql<number>`COUNT(*)::int`.as("patients")])
     .where("ic.province", "=", args.provinceNameTh)
-    .where("ic.onset_date_parsed", ">=", start)
-    .where("ic.onset_date_parsed", "<=", end)
+    .where("ic.onset_date_parsed", ">=", startDate)
+    .where("ic.onset_date_parsed", "<=", endDate)
     .where("ic.disease_code", "in", diseaseIn as any)
     .where(sql`ic.age_y IS NOT NULL`)
     .groupBy("ageRange")
@@ -260,7 +273,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(merged, {
       status: 200,
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
     });
   } catch (e: any) {
     console.error("❌ [compareInfo/age-group] error:", e);

@@ -4,6 +4,8 @@ import { sql } from "kysely";
 import { resolveDiseaseAndTable } from "@/lib/dashboard/resolveDiseaseAndTable";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // ✅ CONFIG via ENV
 const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";

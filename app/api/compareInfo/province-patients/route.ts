@@ -4,6 +4,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ProvinceSummary = {
   province: string;
@@ -110,7 +112,9 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(String(s || "").trim());
 }
 
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
@@ -159,7 +163,8 @@ async function queryProvincePatients(opts: {
   if (!resolved) return { province: opts.provinceNameTh, region: null, patients: 0 };
 
   const diseaseIn = diseaseCandidates(resolved);
-  if (diseaseIn.length === 0) return { province: opts.provinceNameTh, region: null, patients: 0 };
+  if (diseaseIn.length === 0)
+    return { province: opts.provinceNameTh, region: null, patients: 0 };
 
   const row = await (db as any)
     .selectFrom(`${fq(fact.schema, fact.table)} as ic` as any)
@@ -206,7 +211,12 @@ export async function GET(req: NextRequest) {
         ? queryProvincePatients({ start_date, end_date, provinceNameTh: mainProvince, disease })
         : Promise.resolve(undefined),
       compareProvince
-        ? queryProvincePatients({ start_date, end_date, provinceNameTh: compareProvince, disease })
+        ? queryProvincePatients({
+            start_date,
+            end_date,
+            provinceNameTh: compareProvince,
+            disease,
+          })
         : Promise.resolve(undefined),
     ]);
 
@@ -214,7 +224,10 @@ export async function GET(req: NextRequest) {
       { ok: true, ...(main ? { main } : {}), ...(compare ? { compare } : {}) },
       {
         status: 200,
-        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
       }
     );
   } catch (e: any) {

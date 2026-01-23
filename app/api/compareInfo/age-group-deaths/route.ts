@@ -3,6 +3,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type AgeRow = { ageRange: string; deaths: number };
 
@@ -174,11 +176,6 @@ async function resolveFactTableByDisease(
   const candidates = diseaseCandidates(resolved);
   if (candidates.length === 0) return null;
 
-  /**
-   * ✅ FIX: Kysely typing ของโปรเจกต์คุณอาจไม่ได้ declare table "disease_fact_tables"
-   * เลยทำให้ selectFrom("disease_fact_tables") โดน TS error
-   * ดังนั้นเราจะ cast เฉพาะ query นี้เป็น any
-   */
   const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active"])
@@ -201,7 +198,6 @@ async function queryAgeDeaths(args: {
   provinceNameTh: string;
   disease: string;
 }): Promise<AgeRow[]> {
-  // ✅ รองรับ cast วันเสียชีวิตแบบเดียวกับ dashboard
   const startYMD = parseYMDOrFallback(args.start_date, "2024-01-01");
   const endYMD = parseYMDOrFallback(args.end_date, "2024-12-31");
 
@@ -309,6 +305,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(merged, {
       status: 200,
       headers: {
+        "Content-Type": "application/json",
         "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
       },
     });

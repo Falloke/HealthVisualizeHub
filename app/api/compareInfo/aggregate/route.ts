@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type AggResp = {
   ok: boolean;
@@ -18,13 +19,20 @@ type AggResp = {
   error?: string;
 };
 
-async function fetchJson(req: NextRequest, pathname: string, params: Record<string, string>) {
+async function fetchJson(
+  req: NextRequest,
+  pathname: string,
+  params: Record<string, string>
+) {
   const url = new URL(pathname, req.nextUrl.origin);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  const text = await res.text().catch(() => "");
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
 
+  const text = await res.text().catch(() => "");
   if (!res.ok) throw new Error(text || `Fetch failed: ${pathname}`);
 
   try {
@@ -80,19 +88,25 @@ export async function GET(req: NextRequest) {
       fetchJson(req, "/api/compareInfo/gender-trend", baseParams),
     ]);
 
-    return NextResponse.json<AggResp>({
-      ok: true,
-      data: {
-        provincePatients,
-        provinceDeaths,
-        regionTop5,
-        agePatients,
-        ageDeaths,
-        genderPatients,
-        genderDeaths,
-        genderTrend,
+    return NextResponse.json<AggResp>(
+      {
+        ok: true,
+        data: {
+          provincePatients,
+          provinceDeaths,
+          regionTop5,
+          agePatients,
+          ageDeaths,
+          genderPatients,
+          genderDeaths,
+          genderTrend,
+        },
       },
-    });
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      }
+    );
   } catch (err: any) {
     console.error("❌ API ERROR (compareInfo/aggregate):", err);
     return NextResponse.json<AggResp>(

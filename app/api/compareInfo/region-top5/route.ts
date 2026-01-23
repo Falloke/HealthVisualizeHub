@@ -4,6 +4,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Row = {
   province: string;
@@ -178,7 +180,9 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(String(s || "").trim());
 }
 
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
@@ -222,12 +226,6 @@ async function getRegionIdByProvinceName(provinceNameTh: string): Promise<number
   }
 }
 
-/**
- * ✅ นับผู้ป่วยของจังหวัดที่เลือก
- * A) join ด้วย province_id (ถ้ามี)
- * B) fallback: ใช้ชื่อจังหวัดใน fact table (ic.province)
- * C) fallback: ic.province_name_th
- */
 async function getPatientsCountByProvince(args: {
   fact: { schema: string; table: string };
   start: Date;
@@ -257,9 +255,7 @@ async function getPatientsCountByProvince(args: {
       .executeTakeFirst();
 
     return Number((row as any)?.patients ?? 0);
-  } catch {
-    // fallback ต่อ
-  }
+  } catch {}
 
   // B) fallback: ic.province
   try {
@@ -273,9 +269,7 @@ async function getPatientsCountByProvince(args: {
       .executeTakeFirst();
 
     return Number((row as any)?.patients ?? 0);
-  } catch {
-    // fallback ต่อ
-  }
+  } catch {}
 
   // C) fallback: ic.province_name_th
   const row = await (db as any)
@@ -290,11 +284,6 @@ async function getPatientsCountByProvince(args: {
   return Number((row as any)?.patients ?? 0);
 }
 
-/**
- * ✅ Top5 ของภูมิภาค
- * A) join ด้วย province_id
- * B) fallback join ด้วยชื่อจังหวัด (p.province_name_th = ic.province)
- */
 async function top5ByRegionId(args: {
   fact: { schema: string; table: string };
   start: Date;
@@ -334,9 +323,7 @@ async function top5ByRegionId(args: {
       patients: Number(r.patients ?? 0),
       rank: i + 1,
     }));
-  } catch {
-    // fallback ต่อ
-  }
+  } catch {}
 
   // B) fallback join ด้วยชื่อจังหวัด
   const rows = await (db as any)
@@ -394,7 +381,6 @@ export async function GET(req: NextRequest) {
     const start = ymdToUTCStart(startYMD);
     const end = ymdToUTCEnd(endYMD);
 
-    // ✅ resolve fact table จริงตาม disease
     const fact = await resolveFactTableByDisease(disease);
     if (!fact) {
       return NextResponse.json<APIResp>(
@@ -433,7 +419,6 @@ export async function GET(req: NextRequest) {
       compareRows = [];
       note = "ไม่พบ region_id ของจังหวัดหลักในตาราง ref.provinces_moph";
     } else if (sameRegion) {
-      // ✅ อยู่ภูมิภาคเดียวกัน → รวมเป็นกราฟเดียว
       const combined = await top5ByRegionId({ fact, start, end, regionId: mRegionId, disease });
       upsertSelected(combined, mainSelected, { isMain: true });
       upsertSelected(combined, compareSelected, { isCompare: true });
@@ -443,7 +428,6 @@ export async function GET(req: NextRequest) {
 
       note = "จังหวัดหลักและจังหวัดที่เปรียบเทียบอยู่ภูมิภาคเดียวกัน (API จะรวมเป็นกราฟเดียว)";
     } else {
-      // ✅ คนละภูมิภาค → ส่ง 2 กราฟ
       const rowsMain = await top5ByRegionId({ fact, start, end, regionId: mRegionId, disease });
       upsertSelected(rowsMain, mainSelected, { isMain: true });
       mainRows = ensureLimit5WithSelected(rowsMain, [mainProvince]);
@@ -464,7 +448,10 @@ export async function GET(req: NextRequest) {
       { ok: true, sameRegion, mainRows, compareRows, note },
       {
         status: 200,
-        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
       }
     );
   } catch (e: any) {

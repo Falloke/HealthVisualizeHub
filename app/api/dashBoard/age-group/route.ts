@@ -4,6 +4,7 @@ import { sql } from "kysely";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // กลุ่มอายุ
 const ageGroups = [
@@ -105,7 +106,6 @@ export async function GET(request: NextRequest) {
     }
 
     // ✅ ถ้า table เป็นรวมหลายโรค ให้กรอง disease_code
-    // (ถ้าเป็น table แยกโรคอยู่แล้ว การกรองนี้ก็ไม่เสียอะไร)
     if (diseaseCode) {
       q = q.where("ic.disease_code", "=", diseaseCode);
     }

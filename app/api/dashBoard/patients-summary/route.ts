@@ -3,6 +3,8 @@ import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
@@ -40,7 +42,9 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(s);
 }
 
-async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTable(
+  diseaseCode: string
+): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
   const row = await (db as any)

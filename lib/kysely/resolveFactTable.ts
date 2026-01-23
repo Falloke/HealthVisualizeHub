@@ -1,7 +1,13 @@
 // lib/kysely/resolveFactTable.ts
 import db from "@/lib/kysely/db";
 
-/** รองรับทั้ง D01, d01, 01 */
+export type FactTableRef = {
+  schema: string;
+  table: string;
+  fq: string; // schema.table
+};
+
+/** รองรับทั้ง D01, d01, 01, 1, 001 */
 function diseaseCandidates(raw: string) {
   const v = (raw || "").trim();
   if (!v) return [];
@@ -17,27 +23,44 @@ function diseaseCandidates(raw: string) {
   if (!digits && /^\d+$/.test(v)) digits = v;
 
   if (digits) {
-    const n = String(Number(digits));
-    const pad2 = n.padStart(2, "0");
-    set.add(`D${pad2}`);
-    set.add(`d${pad2}`);
+    const n = String(Number(digits)); // "01" -> "1"
+    const pad2 = n.padStart(2, "0"); // "1" -> "01"
+    const pad3 = n.padStart(3, "0"); // "1" -> "001"
+
+    // เลขล้วน
+    set.add(n);
     set.add(pad2);
+    set.add(pad3);
+
+    // มี D/d นำหน้า
+    set.add(`D${n}`);
+    set.add(`D${pad2}`);
+    set.add(`D${pad3}`);
+
+    set.add(`d${n}`);
+    set.add(`d${pad2}`);
+    set.add(`d${pad3}`);
   }
 
-  return Array.from(set);
+  return Array.from(set).filter(Boolean);
+}
+
+/** ✅ กัน injection */
+function safeIdentOrThrow(v: unknown, name: string) {
+  const s = String(v ?? "").trim();
+  if (!s) throw new Error(`${name} ว่าง`);
+  if (!/^[a-z0-9_]+$/i.test(s)) throw new Error(`${name} ไม่ถูกต้อง`);
+  return s;
 }
 
 /**
- * ✅ ดึง table_name + schema_name จาก disease_fact_tables ตาม disease_code
- * ตัวอย่าง:
- *  - D01 -> public.d01_influenza
- *  - D04 -> public.d04_testttt
+ * ✅ ดึง table_name + schema_name จาก disease_fact_tables ตาม disease_code (active เท่านั้น)
+ * คืนเป็น { schema, table, fq }
  */
-export async function resolveFactTableByDisease(disease: string) {
+export async function resolveFactTableRefByDisease(disease: string): Promise<FactTableRef> {
   const diseaseIn = diseaseCandidates(disease);
   if (diseaseIn.length === 0) throw new Error("ไม่พบ disease code");
 
-  // ✅ ดึง mapping ที่ active เท่านั้น
   const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["table_name", "schema_name"])
@@ -45,18 +68,19 @@ export async function resolveFactTableByDisease(disease: string) {
     .where("disease_code", "in", diseaseIn as any)
     .executeTakeFirst();
 
-  const table = (row as any)?.table_name;
-  const schema = (row as any)?.schema_name || "public";
-
-  if (!table) {
-    throw new Error(
-      `ไม่พบ mapping ของโรค (${disease}) ใน disease_fact_tables`
-    );
+  if (!row?.table_name) {
+    throw new Error(`ไม่พบ mapping ของโรค (${disease}) ใน disease_fact_tables`);
   }
 
-  // ✅ กัน injection
-  if (!/^[a-z0-9_]+$/i.test(table)) throw new Error("table_name ไม่ถูกต้อง");
-  if (!/^[a-z0-9_]+$/i.test(schema)) throw new Error("schema_name ไม่ถูกต้อง");
+  const schema = safeIdentOrThrow(row.schema_name ?? "public", "schema_name");
+  const table = safeIdentOrThrow(row.table_name, "table_name");
+  return { schema, table, fq: `${schema}.${table}` };
+}
 
-  return `${schema}.${table}`;
+/**
+ * ✅ ของเดิมยังใช้ได้: คืนเป็น "schema.table"
+ */
+export async function resolveFactTableByDisease(disease: string) {
+  const ref = await resolveFactTableRefByDisease(disease);
+  return ref.fq;
 }

@@ -3,7 +3,8 @@ import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
-// export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // -------------------- utils --------------------
 function parseYMDOrFallback(input: string | null, fallback: string) {
@@ -68,11 +69,12 @@ function isSafeIdent(s: string) {
 }
 
 /** ✅ resolve table จาก disease_fact_tables */
-async function resolveFactTable(diseaseCodeRaw: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTable(
+  diseaseCodeRaw: string
+): Promise<{ schema: string; table: string } | null> {
   const candidates = diseaseCandidates(diseaseCodeRaw);
   if (candidates.length === 0) return null;
 
-  // 👉 เลือกตัวที่ตรงจริงก่อน เช่น D01
   const row = await (db as any)
     .selectFrom("disease_fact_tables")
     .select(["schema_name", "table_name", "is_active", "disease_code"])
@@ -147,8 +149,10 @@ export async function GET(request: NextRequest) {
 
     for (const r of rows as any[]) {
       const g = String(r.gender ?? "").trim().toLowerCase();
-      if (g === "m" || g === "male" || g === "ชาย") male += Number(r.patients || 0);
-      else if (g === "f" || g === "female" || g === "หญิง") female += Number(r.patients || 0);
+      if (g === "m" || g === "male" || g === "ชาย")
+        male += Number(r.patients || 0);
+      else if (g === "f" || g === "female" || g === "หญิง")
+        female += Number(r.patients || 0);
       else unknown += Number(r.patients || 0);
     }
 

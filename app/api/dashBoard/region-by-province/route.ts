@@ -5,6 +5,8 @@ import provinces from "@/public/data/Thailand-ProvinceName.json";
 import { resolveDiseaseCode } from "@/lib/dashboard/dbExpr";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ProvinceRegion = {
   ProvinceNameThai: string;

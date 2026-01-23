@@ -3,7 +3,8 @@ import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
-// export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
 const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim(); // เช่น "date"
@@ -42,7 +43,9 @@ function isSafeIdent(s: string) {
 }
 
 /** ✅ resolve table จาก disease_fact_tables */
-async function resolveFactTable(diseaseCode: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTable(
+  diseaseCode: string
+): Promise<{ schema: string; table: string } | null> {
   if (!diseaseCode) return null;
 
   const row = await (db as any)
@@ -76,18 +79,7 @@ export async function GET(request: NextRequest) {
     const diseaseCode = pickDisease(params);
 
     // ✅ ยังไม่เลือกจังหวัด -> คืน 0
-    if (!provinceName) {
-      return NextResponse.json(
-        [
-          { gender: "ชาย", value: 0 },
-          { gender: "หญิง", value: 0 },
-        ],
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // ✅ ยังไม่เลือกโรค -> คืน 0
-    if (!diseaseCode) {
+    if (!provinceName || !diseaseCode) {
       return NextResponse.json(
         [
           { gender: "ชาย", value: 0 },
@@ -135,8 +127,10 @@ export async function GET(request: NextRequest) {
 
     for (const r of rows as any[]) {
       const g = String(r.gender ?? "").trim().toLowerCase();
-      if (g === "m" || g === "male" || g === "ชาย") male += Number(r.deaths || 0);
-      else if (g === "f" || g === "female" || g === "หญิง") female += Number(r.deaths || 0);
+      if (g === "m" || g === "male" || g === "ชาย")
+        male += Number(r.deaths || 0);
+      else if (g === "f" || g === "female" || g === "หญิง")
+        female += Number(r.deaths || 0);
     }
 
     return NextResponse.json(

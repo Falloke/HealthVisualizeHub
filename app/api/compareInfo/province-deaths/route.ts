@@ -3,6 +3,8 @@ import { sql } from "kysely";
 import db from "@/lib/kysely/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ProvinceDeaths = { province: string; deaths: number };
 type APIResp = {
@@ -105,7 +107,9 @@ function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(String(s || "").trim());
 }
 
-async function resolveFactTableByDisease(diseaseParam: string): Promise<{ schema: string; table: string } | null> {
+async function resolveFactTableByDisease(
+  diseaseParam: string
+): Promise<{ schema: string; table: string } | null> {
   const resolved = await resolveDiseaseCode(diseaseParam);
   if (!resolved) return null;
 
@@ -205,7 +209,10 @@ export async function GET(req: NextRequest) {
       { ok: true, ...(main ? { main } : {}), ...(compare ? { compare } : {}) },
       {
         status: 200,
-        headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
       }
     );
   } catch (e: any) {

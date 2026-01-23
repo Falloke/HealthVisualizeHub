@@ -3,6 +3,8 @@ import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // mapping ชื่อคอลัมน์วันเสียชีวิต (กัน schema เปลี่ยน)
 const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
@@ -133,6 +135,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group-deaths):", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json([], {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
