@@ -4,6 +4,8 @@ import db from "@/lib/kysely/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type RegionRow = {
   region_id: number;
@@ -19,12 +21,26 @@ export async function GET() {
       order by display_order asc
     `.execute(db);
 
-    return NextResponse.json({ ok: true, rows });
+    return NextResponse.json(
+      { ok: true, rows },
+      {
+        status: 200,
+        headers: {
+          // ✅ กัน cache ตอน build / ตอน deploy
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (e: any) {
     console.error("❌ regions-moph GET error:", e);
     return NextResponse.json(
       { ok: false, error: e?.message || "failed to load regions_moph" },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
     );
   }
 }
