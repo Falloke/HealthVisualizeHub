@@ -1336,11 +1336,10 @@ export default function DiseaseEditor({ code }: Props) {
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-base font-semibold text-sky-800">
-              Import CSV (เลือกโรค + ตารางปลายทาง)
+              นำเข้าข้อมูลรูปแบบ CSV
             </h3>
-            <p className="text-xs text-gray-500">
-              เลือกรหัสโรคก่อน แล้วระบบจะแนะนำชื่อ table ให้อัตโนมัติ
-              (แก้เองได้)
+            <p className="text-gray-500 text-md">
+              (เลือกโรค และ ตารางที่ต้องการนำเข้า)
             </p>
           </div>
 
@@ -1395,7 +1394,7 @@ export default function DiseaseEditor({ code }: Props) {
           {/* table ปลายทาง */}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              ชื่อ Table ปลายทาง
+              ตารางที่ต้องการนำเข้า
             </label>
 
             <div className="flex gap-2">

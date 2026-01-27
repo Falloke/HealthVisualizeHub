@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -18,12 +18,6 @@ import {
   ProvinceCountTooltip,
   ValueLabelRight,
 } from "@/app/components/bargraph/GraphUtils";
-
-type RegionRow = {
-  region_id: number;
-  region_name_th: string;
-  display_order: number;
-};
 
 type Row = {
   province: string;
@@ -76,43 +70,49 @@ function safeJson<T>(text: string, fallback: T): T {
   }
 }
 
-function compactThai(s: string) {
-  return String(s ?? "")
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(/ฯ/g, "")
-    .toLowerCase();
-}
+/** ✅ ใช้ตัวแปล region แบบเดียวกับไฟล์ตัวอย่างของคุณ */
+function regionLabel(region?: string | null): string {
+  if (!region) return "";
+  const raw = String(region).trim();
 
-function prettyRegion(name: string): string {
-  const s = (name || "").trim();
-  if (!s) return "";
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล"))
-    return "กรุงเทพฯและปริมณฑล";
-  const noPrefix = s.replace(/^ภาค\s*/i, "").trim();
-  if (noPrefix === "ตะวันออกเฉียงเหนือ") return "ตะวันออกเฉียงเหนือ";
-  return noPrefix;
-}
-
-function resolveRegionName(
-  raw: unknown,
-  byId: Record<string, string>,
-  byKey: Record<string, string>
-) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-
-  const n = Number(s);
-  if (Number.isFinite(n) && n > 0) return byId[String(n)] || s;
-
-  const key = compactThai(s);
-  if (byKey[key]) return byKey[key];
-
-  if (s.includes("กรุงเทพ") || s.includes("ปริมณฑล")) {
-    return byId["7"] || s;
+  if (/[ก-๙]/.test(raw)) {
+    if (raw.includes("กรุงเทพ")) return "กรุงเทพและปริมณฑล";
+    if (raw.startsWith("ภาค")) return raw;
+    return `ภาค${raw}`;
   }
 
-  return s;
+  const code = Number(raw);
+  const map: Record<number, string> = {
+    1: "ภาคเหนือ",
+    2: "ภาคตะวันออกเฉียงเหนือ",
+    3: "ภาคกลาง",
+    4: "ภาคตะวันออก",
+    5: "ภาคตะวันตก",
+    6: "ภาคใต้",
+    7: "กรุงเทพและปริมณฑล",
+  };
+  return map[code] ?? raw;
+}
+
+/** ✅ ดึง region แบบเดียวกับไฟล์ตัวอย่าง (รองรับหลายชื่อ field) */
+function extractRegionFromResp(json: any): string {
+  return (
+    json?.regionName ??
+    json?.region ??
+    json?.regionId ??
+    json?.mainRegion ??
+    json?.data?.regionName ??
+    json?.data?.region ??
+    json?.data?.regionId ??
+    json?.data?.mainRegion ??
+    json?.selected?.region ??
+    json?.selected?.regionId ??
+    json?.topPatients?.[0]?.region ??
+    json?.topPatients?.[0]?.regionId ??
+    json?.top_patients?.[0]?.region ??
+    json?.top_patients?.[0]?.regionId ??
+    ""
+  );
 }
 
 /** ✅ ดึง topPatients แบบยืดหยุ่น รองรับ snake_case */
@@ -142,25 +142,6 @@ function extractSelectedProvince(json: any) {
   );
 }
 
-/** ✅ region raw แบบยืดหยุ่น */
-function extractRegionRaw(json: any) {
-  return (
-    json?.regionId ??
-    json?.region_id ??
-    json?.region ??
-    json?.data?.regionId ??
-    json?.data?.region_id ??
-    json?.data?.region ??
-    json?.selected?.regionId ??
-    json?.selected?.region_id ??
-    json?.selected?.region ??
-    json?.selectedProvince?.regionId ??
-    json?.selectedProvince?.region_id ??
-    json?.selectedProvince?.region ??
-    ""
-  );
-}
-
 export default function GraphRegionTop5() {
   const start_date = useDashboardStore((s) => s.start_date);
   const end_date = useDashboardStore((s) => s.end_date);
@@ -169,53 +150,8 @@ export default function GraphRegionTop5() {
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Row[]>([]);
-  const [apiRegionRaw, setApiRegionRaw] = useState<string>("");
+  const [regionRaw, setRegionRaw] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
-
-  const [regionById, setRegionById] = useState<Record<string, string>>({});
-  const [regionByKey, setRegionByKey] = useState<Record<string, string>>({});
-  const regionsLoadedRef = useRef(false);
-
-  // โหลดชื่อภูมิภาค
-  useEffect(() => {
-    if (regionsLoadedRef.current) return;
-    regionsLoadedRef.current = true;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/ref/regions-moph", { cache: "no-store" });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "โหลด regions_moph ไม่สำเร็จ");
-
-        const json = safeJson<any>(text, {});
-        const rr = (json?.rows ?? []) as RegionRow[];
-
-        const byId: Record<string, string> = {};
-        const byKey: Record<string, string> = {};
-
-        for (const r of rr) {
-          const name = String(r.region_name_th ?? "").trim();
-          if (!name) continue;
-
-          byId[String(r.region_id)] = name;
-          byKey[compactThai(name)] = name;
-          byKey[compactThai(name.replace(/^ภาค\s*/i, ""))] = name;
-
-          if (name.includes("กรุงเทพ") || name.includes("ปริมณฑล")) {
-            byKey["กรุงเทพ"] = name;
-            byKey["กรุงเทพมหานครและปริมณฑล"] = name;
-          }
-        }
-
-        setRegionById(byId);
-        setRegionByKey(byKey);
-      } catch (e) {
-        console.error("❌ Load regions_moph error:", e);
-        setRegionById({});
-        setRegionByKey({});
-      }
-    })();
-  }, []);
 
   // โหลดข้อมูล topPatients
   useEffect(() => {
@@ -228,14 +164,14 @@ export default function GraphRegionTop5() {
 
         if (!province || !province.trim()) {
           setRows([]);
-          setApiRegionRaw("");
+          setRegionRaw("");
           setLoading(false);
           return;
         }
 
         if (!diseaseCode || !diseaseCode.trim()) {
           setRows([]);
-          setApiRegionRaw("");
+          setRegionRaw("");
           setLoading(false);
           return;
         }
@@ -271,13 +207,12 @@ export default function GraphRegionTop5() {
 
         const sel = extractSelected(json);
         const extra = extractSelectedProvince(json);
-
         const patientsRank = Number(sel?.patientsRank ?? sel?.patients_rank ?? 0);
 
         if (patientsRank > 0) {
           if (patientsRank <= 5) {
             const already = finalRows.some(
-              (r) => compactThai(r.province) === compactThai(sel?.province)
+              (r) => String(r.province).trim() === String(sel?.province ?? "").trim()
             );
 
             if (!already) {
@@ -291,7 +226,7 @@ export default function GraphRegionTop5() {
               finalRows = finalRows.slice(0, 5);
             } else {
               finalRows = finalRows.map((r) =>
-                compactThai(r.province) === compactThai(sel?.province)
+                String(r.province).trim() === String(sel?.province ?? "").trim()
                   ? { ...r, isSelected: true }
                   : r
               );
@@ -308,14 +243,17 @@ export default function GraphRegionTop5() {
         }
 
         setRows(finalRows);
-        setApiRegionRaw(extractRegionRaw(json));
+
+        // ✅ region raw ตามตัวอย่าง
+        const reg = extractRegionFromResp(json);
+        setRegionRaw(reg || "");
       } catch (e: any) {
         if (e?.name === "AbortError") return;
         console.error("❌ Fetch error (region top5):", e);
         if (!cancelled) {
           setErr("โหลดข้อมูลไม่สำเร็จ");
           setRows([]);
-          setApiRegionRaw("");
+          setRegionRaw("");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -341,27 +279,13 @@ export default function GraphRegionTop5() {
     return Math.min(200, Math.max(110, longest * 10));
   }, [rows]);
 
-  const regionNameShort = useMemo(() => {
-    const resolved = resolveRegionName(apiRegionRaw, regionById, regionByKey);
-    return resolved ? prettyRegion(resolved) : "";
-  }, [apiRegionRaw, regionById, regionByKey]);
-
-  const title = regionNameShort
-    ? `ผู้ป่วยสะสมในภูมิภาค ${regionNameShort}`
-    : "ผู้ป่วยสะสมในภูมิภาค";
-
+  const regionText = useMemo(() => regionLabel(regionRaw), [regionRaw]);
   const legend = useMemo(() => riskLegendText(), []);
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <h4 className="font-bold">{title}</h4>
-        {province ? (
-          <span className="text-xs text-gray-500">
-            จังหวัดที่เลือก: {province}
-          </span>
-        ) : null}
-      </div>
+      {/* ✅ แสดงภูมิภาคตรงชื่อกราฟ เหมือนตัวอย่าง */}
+      <h4 className="mb-2 font-bold">ผู้ป่วยสะสมใน {regionText || "—"}</h4>
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>

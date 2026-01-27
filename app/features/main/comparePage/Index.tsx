@@ -195,18 +195,11 @@ export default function CompareInfo() {
                 </h1>
 
                 {rangeText && (
-                  <p className="mt-2 text-sm text-gray-700 sm:text-base">
+                  <p className="text-basemt-2 text-gray-700 md:text-lg">
                     ช่วงวันที่{" "}
                     <span className="font-semibold text-gray-900">
                       {rangeText}
                     </span>
-                  </p>
-                )}
-
-                {!hasBoth && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    เลือกจังหวัดทั้งสองฝั่งจาก Sidebar ให้ครบ 2 จังหวัดก่อน
-                    จากนั้นกราฟเปรียบเทียบจะปรากฏด้านล่าง
                   </p>
                 )}
               </div>
