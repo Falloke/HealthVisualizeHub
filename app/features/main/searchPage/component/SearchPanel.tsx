@@ -261,11 +261,6 @@ export default function SearchPanel() {
                 </tbody>
               </table>
             </div>
-
-            {/* Footer hint (optional look-n-feel) */}
-            <div className="border-t border-slate-100 bg-white px-4 py-3 text-xs text-slate-500">
-              * แถวที่ถูกสร้างล่าสุด (ถ้ามี query id) จะถูกไฮไลต์เป็นสีฟ้าอ่อน
-            </div>
           </div>
         )}
       </div>
