@@ -83,6 +83,10 @@ function zodToErrors(err: z.ZodError<unknown>) {
 export default function SearchCreate() {
   const router = useRouter();
 
+  // ✅ ปรับ path หน้าเปรียบเทียบตรงนี้ ถ้าของจริงไม่ใช่ /compareInfo
+  const COMPARE_PATH = "/compareInfo";
+  const OVERVIEW_PATH = "/dashBoard";
+
   // ---------- Provinces ----------
   const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
   const [provLoading, setProvLoading] = useState(true);
@@ -114,15 +118,15 @@ export default function SearchCreate() {
   const [dzLoading, setDzLoading] = useState(true);
   const [dzErr, setDzErr] = useState<string | null>(null);
 
-  // ✅ เปลี่ยนเป็นเก็บ diseaseCode (ไม่เก็บชื่อ) เพื่อกัน D01 โผล่/validate พัง
+  // ✅ เก็บ diseaseCode เป็นหลัก
   const [formData, setFormData] = useState({
     searchName: "",
     province: "",
     startDate: "",
     endDate: "",
-    diseaseCode: "", // ✅ D01 / D04 / ...
-    diseaseOther: "", // ✅ กรณี OTHER
-    diseaseProvince: "",
+    diseaseCode: "", // D01 / D04 / ...
+    diseaseOther: "", // กรณี OTHER
+    diseaseProvince: "", // จังหวัดเปรียบเทียบ (ตัวที่ 2)
     color: "#E89623",
   });
 
@@ -133,7 +137,6 @@ export default function SearchCreate() {
     () => provinces.map((p) => p.ProvinceNameThai).filter(Boolean),
     [provinces]
   );
-
   const provinceSet = useMemo(() => new Set(provinceNames), [provinceNames]);
 
   const isOtherDisease = formData.diseaseCode === "OTHER";
@@ -155,7 +158,6 @@ export default function SearchCreate() {
         const rows = Array.isArray(json) ? json : json?.diseases || [];
         setDiseases(rows);
 
-        // ✅ ตั้งค่า default: เลือกตัวแรก (ไม่จำเป็นต้อง D01) และไม่โชว์ code
         if (rows.length > 0) {
           const first = rows.find((d) => d.code === "D01") ?? rows[0];
           setFormData((p) => ({
@@ -209,7 +211,7 @@ export default function SearchCreate() {
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
 
-  // ✅ validation ใหม่: รองรับโรคจาก DB + OTHER (ไม่ hardcode enum ชื่อไทย)
+  // ✅ validation
   const validate = (): boolean => {
     setErrors({});
 
@@ -233,18 +235,33 @@ export default function SearchCreate() {
             message: "รูปแบบรหัสโรคไม่ถูกต้อง",
           }),
         diseaseOther: z.string().trim().optional(),
-        diseaseProvince: z.string().trim().optional(),
+        diseaseProvince: z
+          .string()
+          .trim()
+          .optional()
+          .refine((v) => !v || provinceSet.size === 0 || provinceSet.has(v), {
+            message: "จังหวัดเปรียบเทียบไม่ถูกต้อง",
+          }),
         color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "สีต้องเป็น #RRGGBB"),
       })
       .superRefine((v, ctx) => {
-        // date format checks
         if (v.startDate) {
           const r = dateStr.safeParse(v.startDate);
-          if (!r.success) ctx.addIssue({ code: "custom", path: ["startDate"], message: r.error.issues[0]?.message ?? "วันที่เริ่มต้นไม่ถูกต้อง" });
+          if (!r.success)
+            ctx.addIssue({
+              code: "custom",
+              path: ["startDate"],
+              message: r.error.issues[0]?.message ?? "วันที่เริ่มต้นไม่ถูกต้อง",
+            });
         }
         if (v.endDate) {
           const r = dateStr.safeParse(v.endDate);
-          if (!r.success) ctx.addIssue({ code: "custom", path: ["endDate"], message: r.error.issues[0]?.message ?? "วันที่สิ้นสุดไม่ถูกต้อง" });
+          if (!r.success)
+            ctx.addIssue({
+              code: "custom",
+              path: ["endDate"],
+              message: r.error.issues[0]?.message ?? "วันที่สิ้นสุดไม่ถูกต้อง",
+            });
         }
         if (v.startDate && v.endDate) {
           if (new Date(v.startDate) > new Date(v.endDate)) {
@@ -275,6 +292,15 @@ export default function SearchCreate() {
             });
           }
         }
+
+        // ✅ ถ้าเลือกจังหวัดเปรียบเทียบ ห้ามเป็นจังหวัดเดียวกับหลัก (กันงง)
+        if (v.diseaseProvince && v.diseaseProvince.trim() && v.diseaseProvince === v.province) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["diseaseProvince"],
+            message: "จังหวัดเปรียบเทียบต้องไม่ซ้ำกับจังหวัดหลัก",
+          });
+        }
       });
 
     const parsed = schema.safeParse(formData);
@@ -297,22 +323,26 @@ export default function SearchCreate() {
         ? formData.diseaseOther.trim()
         : (selectedDisease?.name_th || "").trim();
 
-      // ✅ ส่งทั้ง diseaseCode + diseaseName (เผื่อ API ยังรองรับแบบเก่า)
+      const province = formData.province.trim();
+      const provinceAlt = formData.diseaseProvince.trim(); // จังหวัดเปรียบเทียบ
+      const hasCompare = provinceAlt.length > 0;
+
+      // ✅ บันทึก saved-search
       const res = await fetch("/api/saved-searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           searchName: formData.searchName.trim(),
 
-          // ใหม่ (แนะนำ)
+          // ใหม่
           diseaseCode,
           diseaseName: diseaseNameTh,
 
-          // เก่า (กันพัง ถ้า backend ยังใช้ diseaseName)
+          // legacy fallback
           disease: diseaseNameTh,
 
-          province: formData.province.trim(),
-          diseaseProvince: formData.diseaseProvince.trim(),
+          province,
+          diseaseProvince: provinceAlt,
           startDate: formData.startDate || "",
           endDate: formData.endDate || "",
           color: formData.color,
@@ -324,16 +354,29 @@ export default function SearchCreate() {
         throw new Error(err?.error || "บันทึกไม่สำเร็จ");
       }
 
-      // ✅ หน้า dashboard ใช้ disease เป็น “code” (ไม่ใช่ชื่อ)
-      const q = new URLSearchParams({
-        province: formData.province.trim(),
+      // ✅ query มาตรฐาน
+      const baseParams: Record<string, string> = {
+        province,
         start_date: formData.startDate || "",
         end_date: formData.endDate || "",
-        disease: diseaseCode === "OTHER" ? "" : diseaseCode, // OTHER ไม่มี table/code ใช้กับ dashboard
+        disease: diseaseCode === "OTHER" ? "" : diseaseCode,
         color: formData.color || "",
-      }).toString();
+      };
 
-      router.push(`/dashBoard?${q}`);
+      // ✅ ถ้าเลือก 2 จังหวัด -> ไปหน้าเปรียบเทียบ
+      if (hasCompare) {
+        const q = new URLSearchParams({
+          ...baseParams,
+          province_alt: provinceAlt, // ✅ ชื่อ param นี้ให้ตรงกับหน้า compare ของคุณ
+        }).toString();
+
+        router.push(`${COMPARE_PATH}?${q}`);
+        return;
+      }
+
+      // ✅ ถ้าเลือก 1 จังหวัด -> ไปหน้า overview
+      const q = new URLSearchParams(baseParams).toString();
+      router.push(`${OVERVIEW_PATH}?${q}`);
     } catch (err) {
       console.error(err);
       alert("บันทึกไม่สำเร็จ");
@@ -475,7 +518,6 @@ export default function SearchCreate() {
                 !dzErr &&
                 diseases.map((d) => (
                   <option key={d.code} value={d.code}>
-                    {/* ✅ ไม่โชว์ D01 บนหน้าเว็บ */}
                     {diseaseLabel(d)}
                   </option>
                 ))}
@@ -501,7 +543,9 @@ export default function SearchCreate() {
                 }`}
               />
               {errors.diseaseOther && (
-                <p className="mt-1 text-xs text-red-600">{errors.diseaseOther}</p>
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.diseaseOther}
+                </p>
               )}
             </label>
           )}
@@ -513,7 +557,9 @@ export default function SearchCreate() {
               value={formData.diseaseProvince}
               onChange={handleChange}
               disabled={provLoading || !!provErr}
-              className="mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-gray-100"
+              className={`mt-1 w-full rounded-md border p-2 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-gray-100 ${
+                errors.diseaseProvince ? "border-red-500" : ""
+              }`}
             >
               <option value="">
                 {provLoading
@@ -535,7 +581,9 @@ export default function SearchCreate() {
                   ))}
             </select>
             {errors.diseaseProvince && (
-              <p className="mt-1 text-xs text-red-600">{errors.diseaseProvince}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {errors.diseaseProvince}
+              </p>
             )}
           </label>
 
