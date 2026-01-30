@@ -244,7 +244,7 @@ export default function CompareAgePatientsChart() {
 
   const title = useMemo(() => {
     if (!hasBoth) return "เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (เลือกจังหวัดให้ครบ)";
-    return `เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (${mainProvince} vs ${compareProvince})`;
+    return `เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ ${mainProvince} และ ${compareProvince}`;
   }, [hasBoth, mainProvince, compareProvince]);
 
   return (

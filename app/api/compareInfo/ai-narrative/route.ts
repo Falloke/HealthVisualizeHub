@@ -1,3 +1,4 @@
+// D:\HealtRiskHub\app\api\compareInfo\ai-narrative\route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -15,7 +16,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const targetUrl = new URL("/api/ai/generate", req.nextUrl.origin);
+    // ✅ เปลี่ยนจาก /api/ai/generate -> /api/ai/generateCompare
+    const targetUrl = new URL("/api/ai/generateCompare", req.nextUrl.origin);
 
     const aiRes = await fetch(targetUrl.toString(), {
       method: "POST",
@@ -33,7 +35,8 @@ export async function POST(req: NextRequest) {
       status: aiRes.status,
       headers: {
         "Content-Type":
-          aiRes.headers.get("content-type") ?? "application/json; charset=utf-8",
+          aiRes.headers.get("content-type") ??
+          "application/json; charset=utf-8",
         "Cache-Control": "no-store",
       },
     });

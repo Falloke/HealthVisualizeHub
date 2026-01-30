@@ -223,7 +223,7 @@ export default function CompareProvinceDeathsChart({
     <div className="rounded bg-white p-4 shadow flex flex-col" style={{ height: CARD_H }}>
       <div style={{ minHeight: HEADER_MIN_H }}>
         <h4 className="mb-1 font-bold">
-          ผู้เสียชีวิตสะสมจังหวัด {mainProvince || "—"} vs {compareProvince || "—"}
+          ผู้เสียชีวิตสะสมจังหวัด {mainProvince || "—"} และ {compareProvince || "—"}
         </h4>
       </div>
 

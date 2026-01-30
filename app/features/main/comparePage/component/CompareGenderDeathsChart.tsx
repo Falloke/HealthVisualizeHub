@@ -302,7 +302,7 @@ export default function CompareGenderDeathsChart() {
 
   const title = useMemo(() => {
     if (!hasBoth) return "เปรียบเทียบผู้เสียชีวิตสะสมแยกตามเพศ (เลือกจังหวัดให้ครบ)";
-    return `เปรียบเทียบผู้เสียชีวิตสะสมแยกตามเพศ (${mainProvince} vs ${compareProvince})`;
+    return `เปรียบเทียบผู้เสียชีวิตสะสมแยกตามเพศ ${mainProvince} และ ${compareProvince}`;
   }, [hasBoth, mainProvince, compareProvince]);
 
   if (!hasBoth) {

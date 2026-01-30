@@ -234,7 +234,7 @@ export default function CompareProvincePatientsChart({ prefetched, parentLoading
   const headerLine = useMemo(() => {
     const a = mainProvince || "—";
     const b = compareProvince || "—";
-    return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} vs ${b}`;
+    return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
   }, [mainProvince, compareProvince]);
 
   return (

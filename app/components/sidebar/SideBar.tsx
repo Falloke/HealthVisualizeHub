@@ -123,12 +123,8 @@ function SidebarInner({
     setDisease,
   } = useDashboardStore();
 
-  const {
-    mainProvince,
-    compareProvince,
-    setMainProvince,
-    setCompareProvince,
-  } = useCompareStore();
+  const { mainProvince, compareProvince, setMainProvince, setCompareProvince } =
+    useCompareStore();
 
   const hasBothCompare = !!mainProvince && !!compareProvince;
 
@@ -263,6 +259,7 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
+  // ✅ สำคัญ: หน้า compareInfo ต้องยิง event เดียว -> ใช้ generateCompare
   const goGenerateCompareNarrative = useCallback(() => {
     const fire = () => {
       const now = Date.now();
@@ -271,10 +268,11 @@ function SidebarInner({
 
       if (typeof window === "undefined") return;
 
+      // ✅ flag กันกรณี push หน้าแล้วต้องยิงตาม
       (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__ = now;
 
+      // ✅ ยิงอันเดียวพอ (CompareNarrativeSection จะไปเรียก generateCompare ผ่าน proxy)
       window.dispatchEvent(new Event("ai:compare:narrative:generate"));
-      window.dispatchEvent(new Event("ai:narrative:generate"));
     };
 
     const isOnCompare = pathname.startsWith("/compareInfo");
@@ -330,8 +328,7 @@ function SidebarInner({
       }
     } catch (e) {
       console.error("Error loading diseases:", e);
-      if (!diseaseCode)
-        setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+      if (!diseaseCode) setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
     }
   }, [diseaseCode, setDisease]);
 
@@ -481,7 +478,7 @@ function SidebarInner({
                   onChange={(e) => {
                     const value = e.target.value;
                     setMainProvince(value);
-                    setProvince(value);
+                    setProvince(value); // ✅ ให้ dashboard store ตามจังหวัดหลัก
                   }}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 >

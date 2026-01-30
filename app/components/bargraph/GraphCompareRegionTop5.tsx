@@ -99,6 +99,72 @@ type Props = {
   provinceB: string | null;
 };
 
+// -------------------- region helpers --------------------
+
+function pickRegion(resp?: APIResp): string {
+  const raw =
+    resp?.selected?.region ||
+    resp?.selectedProvince?.region ||
+    resp?.region ||
+    "";
+  return String(raw ?? "").trim();
+}
+
+type RegionKey = "north" | "central" | "northeast" | "east" | "west" | "south" | "";
+
+function regionKeyOf(raw: string): RegionKey {
+  const s = String(raw ?? "").replace(/\s+/g, "").toLowerCase();
+
+  // อังกฤษ (กันกรณี backend ส่ง ENG)
+  if (s.includes("north") && !s.includes("east")) return "north";
+  if (s.includes("central")) return "central";
+  if (s.includes("northeast")) return "northeast";
+  if (s.includes("east")) return "east";
+  if (s.includes("west")) return "west";
+  if (s.includes("south")) return "south";
+
+  // ไทย
+  if (s.includes("เหนือ")) return "north";
+  if (s.includes("กลาง")) return "central";
+  if (s.includes("ตะวันออกเฉียงเหนือ") || s.includes("อีสาน")) return "northeast";
+  if (s.includes("ตะวันออก")) return "east";
+  if (s.includes("ตะวันตก")) return "west";
+  if (s.includes("ใต้")) return "south";
+
+  return "";
+}
+
+function displayRegion(raw: string): string {
+  const r = String(raw ?? "").trim();
+  if (!r) return "";
+
+  // ถ้ามาเป็น "ภาค..." อยู่แล้ว
+  if (r.startsWith("ภาค")) return r;
+
+  // ถ้ามาเป็น "ภูมิภาค..." (บางระบบชอบส่งแบบนี้)
+  if (r.startsWith("ภูมิภาค")) {
+    const tail = r.replace(/^ภูมิภาค/, "").trim();
+    return tail ? `ภาค${tail}` : "";
+  }
+
+  // ถ้ามาเป็น "เหนือ/กลาง/ใต้" -> เติม "ภาค"
+  if (/^(เหนือ|กลาง|ใต้|ตะวันออก|ตะวันตก|ตะวันออกเฉียงเหนือ|อีสาน)$/.test(r)) {
+    return `ภาค${r}`;
+  }
+
+  // ถ้ามาเป็น ENG แบบสั้น ๆ
+  const k = regionKeyOf(r);
+  if (k === "north") return "ภาคเหนือ";
+  if (k === "central") return "ภาคกลาง";
+  if (k === "northeast") return "ภาคตะวันออกเฉียงเหนือ";
+  if (k === "east") return "ภาคตะวันออก";
+  if (k === "west") return "ภาคตะวันตก";
+  if (k === "south") return "ภาคใต้";
+
+  // สุดท้าย: คืนตามจริง (แต่ไม่เติม "ภูมิภาคของ ...")
+  return r;
+}
+
 // -------------------- responsive helpers --------------------
 
 function useElementWidth<T extends HTMLElement>() {
@@ -176,7 +242,7 @@ function buildRowsForOneProvince(
   resp: APIResp,
   selectedProvince: string | null,
   flag: "A" | "B"
-): { rows: Row[]; regionName: string } {
+): { rows: Row[]; regionName: string; regionKey: RegionKey } {
   const baseTop: Row[] = (resp.topPatients ?? [])
     .slice(0, 5)
     .map((d, i) => ({
@@ -205,8 +271,11 @@ function buildRowsForOneProvince(
     });
   }
 
-  const regionName = resp.selected?.region || resp.region || "";
-  return { rows, regionName };
+  const picked = pickRegion(resp);
+  const regionName = displayRegion(picked);
+  const regionKey = regionKeyOf(picked);
+
+  return { rows, regionName, regionKey };
 }
 
 // -------------------- component --------------------
@@ -292,14 +361,10 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
 
         // ---------- case: มีจังหวัดเดียว ----------
         if (respA && !respB) {
-          const { rows, regionName } = buildRowsForOneProvince(
-            respA,
-            provinceA,
-            "A"
-          );
+          const one = buildRowsForOneProvince(respA, provinceA, "A");
           setMode("singleRegion");
-          setRowsSingle(rows);
-          setRegionTitle(regionName);
+          setRowsSingle(one.rows);
+          setRegionTitle(one.regionName); // ✅ เป็น "ภาค..." แล้ว
           setRowsA([]);
           setRowsB([]);
           setRegionAName("");
@@ -308,14 +373,10 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
         }
 
         if (!respA && respB) {
-          const { rows, regionName } = buildRowsForOneProvince(
-            respB,
-            provinceB,
-            "B"
-          );
+          const one = buildRowsForOneProvince(respB, provinceB, "B");
           setMode("singleRegion");
-          setRowsSingle(rows);
-          setRegionTitle(regionName);
+          setRowsSingle(one.rows);
+          setRegionTitle(one.regionName); // ✅ เป็น "ภาค..." แล้ว
           setRowsA([]);
           setRowsB([]);
           setRegionAName("");
@@ -335,19 +396,11 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
           return;
         }
 
-        const regionA =
-          respA.selected?.region ||
-          respA.selectedProvince?.region ||
-          respA.region ||
-          "";
-        const regionB =
-          respB.selected?.region ||
-          respB.selectedProvince?.region ||
-          respB.region ||
-          "";
+        const oneA = buildRowsForOneProvince(respA, provinceA, "A");
+        const oneB = buildRowsForOneProvince(respB, provinceB, "B");
 
         // ---------- case: อยู่ภูมิภาคเดียวกัน ----------
-        if (regionA && regionB && regionA === regionB) {
+        if (oneA.regionKey && oneB.regionKey && oneA.regionKey === oneB.regionKey) {
           const baseTop: Row[] = (respA.topPatients ?? [])
             .slice(0, 5)
             .map((d, i) => ({
@@ -392,21 +445,23 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
 
           setMode("singleRegion");
           setRowsSingle(combined);
-          setRegionTitle(regionA);
+
+          // ✅ ใช้ชื่อภาคจริง (ภาค...) ไม่ใช้ "ภูมิภาคของ..."
+          setRegionTitle(oneA.regionName || oneB.regionName || "");
+
           setRowsA([]);
           setRowsB([]);
           setRegionAName("");
           setRegionBName("");
         } else {
           // ---------- case: คนละภูมิภาค ----------
-          const oneA = buildRowsForOneProvince(respA, provinceA, "A");
-          const oneB = buildRowsForOneProvince(respB, provinceB, "B");
-
           setMode("twoRegions");
           setRowsA(oneA.rows);
           setRowsB(oneB.rows);
-          setRegionAName(oneA.regionName || `ภูมิภาคของ ${provinceA ?? "-"}`);
-          setRegionBName(oneB.regionName || `ภูมิภาคของ ${provinceB ?? "-"}`);
+
+          // ✅ ถ้าไม่มี region จริง -> ไม่ใส่ fallback แบบ "ภูมิภาคของ ..."
+          setRegionAName(oneA.regionName || "");
+          setRegionBName(oneB.regionName || "");
 
           setRowsSingle([]);
           setRegionTitle("");
@@ -620,7 +675,7 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div ref={boxA.ref}>
           <h5 className="mb-2 font-semibold">
-            ภูมิภาคของ {provinceA ?? "-"} {regionAName ? `(${regionAName})` : ""}
+            {regionAName ? `${regionAName}` : "ภูมิภาค"} — {provinceA ?? "-"}
           </h5>
 
           {rowsAFill.length === 0 ? (
@@ -688,7 +743,7 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
 
         <div ref={boxB.ref}>
           <h5 className="mb-2 font-semibold">
-            ภูมิภาคของ {provinceB ?? "-"} {regionBName ? `(${regionBName})` : ""}
+            {regionBName ? `${regionBName}` : "ภูมิภาค"} — {provinceB ?? "-"}
           </h5>
 
           {rowsBFill.length === 0 ? (

@@ -244,7 +244,7 @@ export default function CompareAgeDeathsChart() {
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
         เปรียบเทียบผู้เสียชีวิตสะสมรายช่วงอายุ{" "}
-        {hasBoth ? `(${mainProvince} vs ${compareProvince})` : "(เลือกระบุจังหวัดให้ครบ)"}
+        {hasBoth ? `${mainProvince} และ ${compareProvince}` : "(เลือกระบุจังหวัดให้ครบ)"}
       </h4>
 
       {!hasBoth ? (
