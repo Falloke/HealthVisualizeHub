@@ -1,8 +1,8 @@
-// app/api/compareInfo/ai-narrative/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,8 +29,11 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-store",
       },
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ API ERROR (compareInfo/ai-narrative):", err);
-    return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

@@ -11,18 +11,47 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก query param:
+ * - ถ้าเป็นตัวเลข -> ใช้เป็น province_no
+ * - ถ้าเป็นชื่อ -> map จาก "ref".provinces_moph.province_name_th -> province_no
+ */
 async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
   if (/^\d+$/.test(p)) return Number(p);
 
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found as any)?.province_id ?? null;
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -38,40 +67,46 @@ export async function GET(request: NextRequest) {
 
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select(["gender", sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .groupBy("gender")
-      .execute();
+    const diseaseId = await resolveDiseaseId(params);
+
+    let q = db
+      .selectFrom("mv_daily_gender_province as m")
+      .select([
+        "m.gender as gender",
+        sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("deaths"),
+      ])
+      // ⚠️ ถ้า MV ของคุณใช้ province_no ให้เปลี่ยน m.province_id -> m.province_no
+      .where("m.province_id", "=", provinceId)
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      .groupBy("m.gender");
+
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
+
+    const rows = await q.execute();
 
     let male = 0;
     let female = 0;
 
-    for (const r of rows) {
-      const g = (r.gender || "").trim();
-      if (g === "M" || g === "ชาย") male += Number(r.deaths);
-      else if (g === "F" || g === "หญิง") female += Number(r.deaths);
+    for (const r of rows as any[]) {
+      const g = String(r.gender ?? "").trim();
+      const c = Number(r.deaths ?? 0);
+      if (g === "M" || g === "ชาย") male += c;
+      else if (g === "F" || g === "หญิง") female += c;
     }
 
-    return NextResponse.json([
-      { gender: "ชาย", value: male },
-      { gender: "หญิง", value: female },
-    ]);
+    return NextResponse.json(
+      [
+        { gender: "ชาย", value: male },
+        { gender: "หญิง", value: female },
+      ],
+      { status: 200 }
+    );
   } catch (err) {
     console.error("❌ API ERROR (gender-deaths):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

@@ -1,9 +1,11 @@
-// app/api/compareInfo/gender-trend/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
 import db from "@/lib/kysely3/db";
+import { resolveDiseaseId as resolveDiseaseIdLoose } from "@/lib/kysely3/resolveDiseaseId";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type TrendData = { month: string; male: number; female: number };
 
@@ -19,13 +21,13 @@ type CombinedRow = {
 type APIResp = { ok: boolean; rows?: CombinedRow[]; error?: string };
 
 function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
+  const raw = (v ?? "").trim();
+  const d = new Date(raw);
   if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
   return d;
 }
 
 function toThaiMonthLabel(month: string): string {
-  // month: YYYY-MM
   const m = month.match(/^(\d{4})-(\d{2})$/);
   if (!m) return month;
   const y = Number(m[1]);
@@ -34,7 +36,44 @@ function toThaiMonthLabel(month: string): string {
   return d.toLocaleString("th-TH", { month: "short", year: "numeric" });
 }
 
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickDiseaseCode(sp: URLSearchParams) {
+  return (sp.get("disease") || sp.get("disease_code") || sp.get("code") || "").trim();
+}
+
+async function resolveDiseaseId(sp: URLSearchParams): Promise<number | null> {
+  const diseaseId = parseIntOrNull(sp.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = pickDiseaseCode(sp);
+  if (!code) return null;
+
+  return await resolveDiseaseIdLoose(code);
+}
+
+async function resolveProvinceId(provinceParam: string): Promise<number | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) return Number(p);
+
+  const row = await db
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (row as any)?.province_id ?? null;
+}
+
 async function queryGenderTrend(args: {
+  diseaseId: number | null;
   start_date: string;
   end_date: string;
   provinceNameTh: string;
@@ -42,25 +81,34 @@ async function queryGenderTrend(args: {
   const start = parseDateOrThrow(args.start_date, "start_date");
   const end = parseDateOrThrow(args.end_date, "end_date");
 
-  const g = sql`LOWER(TRIM(COALESCE(ic.gender, '')))`;
-  const monthKey = sql<string>`TO_CHAR(date_trunc('month', ic.onset_date_parsed), 'YYYY-MM')`.as("month");
+  const provinceId = await resolveProvinceId(args.provinceNameTh);
+  if (!provinceId) return [];
 
-  const rows = await db
-    .selectFrom("influenza_cases as ic")
-    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+  const monthKey = sql<string>`TO_CHAR(date_trunc('month', m.onset_date), 'YYYY-MM')`.as("month");
+  const g = sql`LOWER(TRIM(COALESCE(m.gender, '')))`;
+
+  let q = db
+    .selectFrom(sql`"method_e"."mv_daily_gender_province"`.as("m"))
     .select(() => [
       monthKey,
-      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('m','male','ชาย'))`.as("male"),
-      sql<number>`COUNT(*) FILTER (WHERE ${g} IN ('f','female','หญิง'))`.as("female"),
+      sql<number>`
+        COALESCE(SUM(m.daily_patients) FILTER (WHERE ${g} IN ('m','male','ชาย')),0)
+      `.as("male"),
+      sql<number>`
+        COALESCE(SUM(m.daily_patients) FILTER (WHERE ${g} IN ('f','female','หญิง')),0)
+      `.as("female"),
     ])
-    .where("p.province_name_th", "=", args.provinceNameTh)
-    .where("ic.onset_date_parsed", ">=", start)
-    .where("ic.onset_date_parsed", "<=", end)
-    .groupBy("month")
-    .orderBy("month", "asc")
-    .execute();
+    .where(sql`m.province_id`, "=", provinceId)
+    .where(sql`m.onset_date`, ">=", start)
+    .where(sql`m.onset_date`, "<=", end)
+    .groupBy(sql`month`)
+    .orderBy(sql`month`, "asc");
 
-  return rows.map((r: any) => ({
+  if (args.diseaseId != null) q = q.where(sql`m.disease_id`, "=", args.diseaseId);
+
+  const rows = await q.execute();
+
+  return (rows as any[]).map((r) => ({
     month: String(r.month),
     male: Number(r.male ?? 0),
     female: Number(r.female ?? 0),
@@ -83,9 +131,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const diseaseId = await resolveDiseaseId(sp);
+
     const [mainTrend, compareTrend] = await Promise.all([
-      queryGenderTrend({ start_date, end_date, provinceNameTh: mainProvince }),
-      queryGenderTrend({ start_date, end_date, provinceNameTh: compareProvince }),
+      queryGenderTrend({ diseaseId, start_date, end_date, provinceNameTh: mainProvince }),
+      queryGenderTrend({ diseaseId, start_date, end_date, provinceNameTh: compareProvince }),
     ]);
 
     const mainMap = new Map<string, TrendData>();
@@ -98,7 +148,7 @@ export async function GET(req: NextRequest) {
     for (const k of mainMap.keys()) monthSet.add(k);
     for (const k of compareMap.keys()) monthSet.add(k);
 
-    const months = Array.from(monthSet.values()).sort(); // YYYY-MM sort ได้ตรง
+    const months = Array.from(monthSet.values()).sort();
 
     const rows: CombinedRow[] = months.map((m) => {
       const a = mainMap.get(m);
@@ -113,12 +163,15 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json<APIResp>(
-      { ok: true, rows },
-      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
-    );
+    return NextResponse.json<APIResp>({ ok: true, rows }, {
+      status: 200,
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (e: any) {
     console.error("❌ API ERROR (compareInfo/gender-trend):", e);
-    return NextResponse.json<APIResp>({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return NextResponse.json<APIResp>(
+      { ok: false, error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

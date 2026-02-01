@@ -1,12 +1,7 @@
+// app/api/dashBoard/region/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/kysely3/db";
 import { sql } from "kysely";
-import provinces from "@/public/data/Thailand-ProvinceName.json";
-
-type ProvinceRegion = {
-  ProvinceNameThai: string;
-  Region_VaccineRollout_MOPH: string;
-};
 
 export const runtime = "nodejs";
 
@@ -17,48 +12,70 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-09-09");
 
-    // 🩺 Query: ผู้ป่วย + ผู้เสียชีวิต grouped by province_id
-    const rows = await db
-      .selectFrom("influenza_cases as ic")
-      .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+    // optional
+    const diseaseId = parseIntOrNull(params.get("disease_id"));
+
+    // ✅ region_id -> region_name_th จาก ref.regions_moph
+    const regions = await db
+      .selectFrom(sql`"ref"."regions_moph"`.as("r"))
       .select([
-        "p.province_name_th as province",
-        sql<number>`COUNT(*)`.as("patients"),
-        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
+        sql<number>`r.region_id`.as("regionId"),
+        sql<string>`r.region_name_th`.as("region"),
+        sql<number>`r.display_order`.as("displayOrder"),
       ])
-      .where("ic.onset_date_parsed", ">=", startDate)
-      .where("ic.onset_date_parsed", "<=", endDate)
-      .groupBy("p.province_name_th")
       .execute();
 
-    // 🗺️ Mapping จังหวัด → ภูมิภาค
-    const provinceRegionMap: Record<string, string> = {};
-    (provinces as ProvinceRegion[]).forEach((p) => {
-      provinceRegionMap[p.ProvinceNameThai] = p.Region_VaccineRollout_MOPH;
-    });
+    const regionNameById = new Map<number, string>();
+    const regionOrderById = new Map<number, number>();
 
-    // 🔄 Group by region
-    const regionData: Record<string, { patients: number; deaths: number }> = {};
-    for (const r of rows) {
-      const provName = String(r.province || "").trim();
-      const region = provinceRegionMap[provName] || "ไม่ทราบภูมิภาค";
-
-      if (!regionData[region]) regionData[region] = { patients: 0, deaths: 0 };
-      regionData[region].patients += Number(r.patients ?? 0);
-      regionData[region].deaths += Number(r.deaths ?? 0);
+    for (const r of regions as any[]) {
+      const id = Number(r.regionId);
+      regionNameById.set(id, String(r.region));
+      regionOrderById.set(id, Number(r.displayOrder ?? 999));
     }
 
-    const result = Object.keys(regionData).map((region) => ({
-      region,
-      patients: regionData[region].patients,
-      deaths: regionData[region].deaths,
-    }));
+    // ✅ ดึงผลรวมระดับภูมิภาคจาก MV
+    let q = db
+      .selectFrom("mv_daily_region as m")
+      .select([
+        "m.region_id as regionId",
+        sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
+        sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("deaths"),
+      ])
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      .groupBy("m.region_id");
+
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
+
+    const rows = await q.execute();
+
+    const result = rows
+      .map((r: any) => {
+        const rid = Number(r.regionId);
+        return {
+          regionId: rid,
+          region: regionNameById.get(rid) || "ไม่ทราบภูมิภาค",
+          patients: Number(r.patients ?? 0),
+          deaths: Number(r.deaths ?? 0),
+          _order: regionOrderById.get(rid) ?? 999,
+        };
+      })
+      .sort((a, b) => a._order - b._order)
+      .map(({ _order, ...rest }) => rest);
 
     return NextResponse.json(result, {
       status: 200,
@@ -66,9 +83,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (region):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

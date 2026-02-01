@@ -12,81 +12,112 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก "ref".provinces_moph
+ * - ถ้าเป็นตัวเลข -> province_no
+ * - ถ้าเป็นชื่อ -> province_name_th
+ */
 async function resolveProvince(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  // ส่งเป็นเลข -> province_id
   if (/^\d+$/.test(p)) {
     const row = await db
-      .selectFrom("provinces")
-      .select(["province_id", "province_name_th", "region_id"])
-      .where("province_id", "=", Number(p))
+      .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+      .select([
+        sql<number>`p.province_no`.as("province_id"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
+        sql<number>`p.region_id`.as("region_id"),
+      ])
+      .where(sql`p.province_no`, "=", Number(p))
       .executeTakeFirst();
-    return row ?? null;
+
+    return row as any;
   }
 
-  // ส่งเป็นชื่อไทย -> map เป็น province_id
   const row = await db
-    .selectFrom("provinces")
-    .select(["province_id", "province_name_th", "region_id"])
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select([
+      sql<number>`p.province_no`.as("province_id"),
+      sql<string>`p.province_name_th`.as("province_name_th"),
+      sql<number>`p.region_id`.as("region_id"),
+    ])
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return row ?? null;
+  return row as any;
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
+
     const startDate = parseDateOrFallback(p.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(p.get("end_date"), "2024-12-31");
-    const province = p.get("province")?.trim();
+    const provinceParam = p.get("province")?.trim();
 
-    if (!province) {
+    if (!provinceParam) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const prov = await resolveProvince(province);
+    const prov = await resolveProvince(provinceParam);
     if (!prov) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceParam}` }, { status: 404 });
     }
 
-    // 🧮 ผู้ป่วยในช่วงวันที่
-    const patientsRow = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(*)`.as("patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
-      .executeTakeFirst();
+    const diseaseId = await resolveDiseaseId(p);
 
-    // ☠️ ผู้เสียชีวิตในช่วงวันที่
-    const deathsRow = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
-      .executeTakeFirst();
+    let q = db
+      .selectFrom("mv_daily_province as m")
+      .select([
+        sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
+        sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("deaths"),
+      ])
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      // ⚠️ ถ้า MV ของคุณใช้ province_no อยู่แล้ว OK
+      // ถ้ายังเป็น province_id เดิม ให้ปรับ MV ให้ตรงก่อน
+      .where("m.province_id", "=", Number(prov.province_id));
+
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
+
+    const row = await q.executeTakeFirst();
 
     return NextResponse.json(
       {
-        province: prov.province_name_th, // คืนชื่อจังหวัดมาตรฐาน
+        province: String(prov.province_name_th),
         regionId: prov.region_id ?? null,
-        patients: Number(patientsRow?.patients ?? 0),
-        deaths: Number(deathsRow?.deaths ?? 0),
+        region: prov.region_id != null ? String(prov.region_id) : "",
+        patients: Number((row as any)?.patients ?? 0),
+        deaths: Number((row as any)?.deaths ?? 0),
       },
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("❌ API ERROR (province-summary):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

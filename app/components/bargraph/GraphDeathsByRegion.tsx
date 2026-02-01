@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphDeathsByRegion.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,21 +22,21 @@ type DataRow = {
   province: string;
   patients: number;
   deaths: number;
-  region?: string; // บาง API อาจไม่มี
+  region?: string;
 };
 
 function regionLabel(region?: string | null): string {
   if (!region) return "";
   const raw = String(region).trim();
 
-  // ถ้าเป็นภาษาไทยอยู่แล้ว
+  // รองรับกรณีเป็นชื่อ/ภาษาไทย
   if (/[ก-๙]/.test(raw)) {
     if (raw.includes("กรุงเทพ")) return "กรุงเทพและปริมณฑล";
     if (raw.startsWith("ภาค")) return raw;
     return `ภาค${raw}`;
   }
 
-  // ถ้าเป็นโค้ดเลข
+  // รองรับกรณีเป็นโค้ดตัวเลข
   const code = Number(raw);
   const map: Record<number, string> = {
     1: "ภาคเหนือ",
@@ -52,7 +51,6 @@ function regionLabel(region?: string | null): string {
 }
 
 function extractRegionFromResp(json: any): string {
-  // ✅ ไล่ดู key ที่มักจะเจอจาก API หลายแบบ
   return (
     json?.regionName ??
     json?.region ??
@@ -61,6 +59,7 @@ function extractRegionFromResp(json: any): string {
     json?.data?.region ??
     json?.data?.mainRegion ??
     json?.topDeaths?.[0]?.region ??
+    json?.topPatients?.[0]?.region ??
     ""
   );
 }
@@ -68,7 +67,7 @@ function extractRegionFromResp(json: any): string {
 export default function GraphDeathsByRegion() {
   const { province, start_date, end_date } = useDashboardStore();
   const [data, setData] = useState<DataRow[]>([]);
-  const [regionRaw, setRegionRaw] = useState<string>(""); // ✅ เก็บภูมิภาคแยก
+  const [regionRaw, setRegionRaw] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -78,45 +77,38 @@ export default function GraphDeathsByRegion() {
       try {
         setLoading(true);
 
-        const url = `/api/dashBoard/region-by-province?start_date=${start_date}&end_date=${end_date}&province=${province}`;
-        const res = await fetch(url);
+        const url =
+          `/api/dashBoard/region-by-province` +
+          `?start_date=${encodeURIComponent(start_date)}` +
+          `&end_date=${encodeURIComponent(end_date)}` +
+          `&province=${encodeURIComponent(province)}`;
+
+        const res = await fetch(url, { cache: "no-store" });
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
 
         const json = text ? JSON.parse(text) : {};
-        const topDeaths: DataRow[] = Array.isArray(json.topDeaths) ? json.topDeaths : [];
 
         if (cancelled) return;
 
-        setData(topDeaths);
+        // ✅ กราฟ deaths ต้องใช้ topDeaths เป็นหลัก
+        const rows: DataRow[] = Array.isArray(json.topDeaths) ? json.topDeaths : [];
 
-        // ✅ 1) เอาภูมิภาคจาก response ระดับบนก่อน
+        // fallback เฉพาะกรณี API เก่ามาก ๆ ยังไม่ส่ง topDeaths มา
+        const fallbackRows: DataRow[] =
+          rows.length > 0
+            ? rows
+            : (Array.isArray(json.topPatients) ? json.topPatients : []);
+
+        // เรียงตาม deaths เสมอสำหรับกราฟนี้
+        const sorted = [...fallbackRows].sort(
+          (a, b) => Number(b.deaths ?? 0) - Number(a.deaths ?? 0)
+        );
+
+        setData(sorted);
+
         let reg = extractRegionFromResp(json);
-
-        // ✅ 2) fallback: บาง API ใส่ region ไว้ใน row
-        if (!reg && topDeaths?.[0]?.region) reg = String(topDeaths[0].region);
-
-        // ✅ 3) fallback สุดท้าย: lookup จากไฟล์จังหวัดใน public (ถ้ามี)
-        if (!reg && province) {
-          try {
-            const mapRes = await fetch("/data/Thailand-ProvinceName.json", { cache: "force-cache" });
-            const mapText = await mapRes.text();
-            const arr = mapText ? JSON.parse(mapText) : [];
-            const found = Array.isArray(arr)
-              ? arr.find((p: any) => String(p?.ProvinceNameThai ?? "").trim() === String(province).trim())
-              : null;
-
-            reg =
-              found?.Region_VaccineRollout_MOPH ??
-              found?.Region ??
-              found?.region ??
-              found?.regionName ??
-              "";
-          } catch {
-            // ignore
-          }
-        }
-
+        if (!reg && sorted?.[0]?.region) reg = String(sorted[0].region);
         setRegionRaw(reg || "");
       } catch (err) {
         console.error("❌ Fetch error (deaths by region):", err);
@@ -140,7 +132,10 @@ export default function GraphDeathsByRegion() {
   );
 
   const yWidth = useMemo(() => {
-    const longest = data.reduce((m, d) => Math.max(m, (d.province ?? "").length), 0);
+    const longest = data.reduce(
+      (m, d) => Math.max(m, (d.province ?? "").length),
+      0
+    );
     return Math.min(180, Math.max(96, longest * 10));
   }, [data]);
 
@@ -148,12 +143,12 @@ export default function GraphDeathsByRegion() {
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h4 className="mb-2 font-bold">
-        ผู้เสียชีวิตสะสมใน {regionText || "—"}
-      </h4>
+      <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมใน {regionText || "—"}</h4>
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>
+      ) : data.length === 0 ? (
+        <p className="text-sm text-gray-600">ไม่มีข้อมูลในช่วงวันที่ที่เลือก</p>
       ) : (
         <ResponsiveContainer width="100%" height={400}>
           <BarChart

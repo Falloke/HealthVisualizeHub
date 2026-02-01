@@ -4,17 +4,8 @@ import { sql } from "kysely";
 
 export const runtime = "nodejs";
 
-// กลุ่มอายุ
-const ageGroups = [
-  { label: "0-4", min: 0, max: 4 },
-  { label: "5-9", min: 5, max: 9 },
-  { label: "10-14", min: 10, max: 14 },
-  { label: "15-19", min: 15, max: 19 },
-  { label: "20-24", min: 20, max: 24 },
-  { label: "25-44", min: 25, max: 44 },
-  { label: "45-59", min: 45, max: 59 },
-  { label: "60+", min: 60, max: 200 },
-];
+// กลุ่มอายุ (ต้องตรงกับ MV)
+const ageGroups = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"];
 
 function parseDateOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
@@ -23,20 +14,47 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก query param:
+ * - ถ้าเป็นตัวเลข -> ใช้เป็น province_no
+ * - ถ้าเป็นชื่อ -> map จาก "ref".provinces_moph.province_name_th -> province_no
+ */
 async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  // ถ้าส่งเป็นเลข -> ถือว่าเป็น province_id
   if (/^\d+$/.test(p)) return Number(p);
 
-  // ถ้าส่งเป็นชื่อจังหวัดไทย -> map ไปเป็น province_id
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found as any)?.province_id ?? null;
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -53,39 +71,37 @@ export async function GET(request: NextRequest) {
 
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 📍 ดึงจำนวนผู้ป่วยแยกตามอายุ (age_y) ของจังหวัดนั้น จากตาราง influenza_cases
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(*)`.as("patients"), "age_y"])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
-      .where("age_y", "is not", null)
-      .groupBy("age_y")
-      .execute();
+    const diseaseId = await resolveDiseaseId(params);
 
-    // 📊 Map age → group
-    const grouped: Record<string, number> = {};
-    for (const g of ageGroups) grouped[g.label] = 0;
+    let q = db
+      .selectFrom("mv_daily_age_province as m")
+      .select([
+        "m.age_group as ageRange",
+        sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
+      ])
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      // ⚠️ ถ้า MV ของคุณใช้ province_no ให้เปลี่ยน m.province_id -> m.province_no
+      .where("m.province_id", "=", provinceId)
+      .groupBy("m.age_group");
 
-    for (const row of rows) {
-      const age = Number(row.age_y);
-      if (!Number.isFinite(age)) continue;
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
 
-      const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number(row.patients);
+    const rows = await q.execute();
+
+    // เติม group ให้ครบ
+    const map: Record<string, number> = {};
+    for (const g of ageGroups) map[g] = 0;
+
+    for (const r of rows as any[]) {
+      const k = String(r.ageRange ?? "").trim();
+      if (k) map[k] = Number(r.patients ?? 0);
     }
 
-    const result = Object.entries(grouped).map(([ageRange, patients]) => ({
-      ageRange,
-      patients,
-    }));
+    const result = Object.entries(map).map(([ageRange, patients]) => ({ ageRange, patients }));
 
     return NextResponse.json(result, {
       status: 200,
@@ -93,9 +109,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

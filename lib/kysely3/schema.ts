@@ -1,23 +1,29 @@
-// lib/kysely3/schema.ts
-import type {
-  ColumnType,
-  Generated,
-  Selectable,
-  Insertable,
-  Updateable,
-} from "kysely";
+// D:\HealtRiskHub\lib\kysely3\schema.ts
+import type { ColumnType, Generated, Selectable } from "kysely";
 
 type DateCol = ColumnType<Date, Date | string, Date | string>;
 
-/** ---------- ตาราง dimension พื้นฐาน (อยู่ใน ref schema) ---------- */
-
-/** ref.diseases */
+/** ---------- dimension tables (อยู่ใน schema ที่อยู่ใน search_path เช่น public/ref) ---------- */
+/**
+ * ✅ หมายเหตุ:
+ * ของจริงใน DB คุณ "ไม่มี ref.diseases"
+ * และคอลัมน์ id อาจชื่อ id หรือ disease_id / code หรือ disease_code
+ * เลยทำให้กำหนดแบบ optional เพื่อไม่ล็อกชื่อเดียว
+ */
 export interface DiseasesTable {
-  disease_id: Generated<number>;
-  disease_code: string;
+  // รองรับทั้ง id หรือ disease_id (อย่างใดอย่างหนึ่ง)
+  id?: Generated<number>;
+  disease_id?: Generated<number>;
+
+  // รองรับทั้ง code หรือ disease_code
+  code?: string;
+  disease_code?: string;
+
+  // เผื่อมีชื่อไทย/อังกฤษ (บางโปรเจกต์มี)
+  name_th?: string | null;
+  name_en?: string | null;
 }
 
-/** ref.provinces */
 export interface ProvincesTable {
   province_id: Generated<number>;
   province_name_th: string;
@@ -25,38 +31,18 @@ export interface ProvincesTable {
   region_id: number | null;
 }
 
-/** ref.districts */
 export interface DistrictsTable {
   district_id: Generated<number>;
   province_id: number;
   district_name_th: string;
 }
 
-/** ref.occupations */
 export interface OccupationsTable {
   occupation_id: Generated<number>;
   occupation_name_th: string;
 }
 
-/** method_x.influenza_cases (กรณีอยากเทียบ method เดิม) */
-export interface InfluenzaCasesTable {
-  id: Generated<number>;
-  disease_id: number;
-  gender: string | null;
-  age_y: number | null;
-  nationality: string | null;
-  occupation_id: number | null;
-  province_id: number | null;
-  district_id: number | null;
-  onset_date_parsed: DateCol;
-  treated_date_parsed: DateCol | null;
-  diagnosis_date_parsed: DateCol | null;
-  death_date_parsed: DateCol | null;
-}
-
 /** ---------- Materialized Views ของ method_e ---------- */
-
-/** method_e.mv_daily_province : โรค-จังหวัด-วัน */
 export interface MvDailyProvinceTable {
   disease_id: number;
   province_id: number;
@@ -65,7 +51,6 @@ export interface MvDailyProvinceTable {
   daily_deaths: number;
 }
 
-/** method_e.mv_daily_region : โรค-ภูมิภาค-วัน */
 export interface MvDailyRegionTable {
   disease_id: number;
   region_id: number;
@@ -74,7 +59,6 @@ export interface MvDailyRegionTable {
   daily_deaths: number;
 }
 
-/** method_e.mv_daily_gender_province : โรค-จังหวัด-วัน-เพศ */
 export interface MvDailyGenderProvinceTable {
   disease_id: number;
   province_id: number;
@@ -84,7 +68,6 @@ export interface MvDailyGenderProvinceTable {
   daily_deaths: number;
 }
 
-/** method_e.mv_daily_age_province : โรค-จังหวัด-วัน-ช่วงอายุ */
 export interface MvDailyAgeProvinceTable {
   disease_id: number;
   province_id: number;
@@ -94,28 +77,23 @@ export interface MvDailyAgeProvinceTable {
   daily_deaths: number;
 }
 
-/** method_e.mv_monthly_gender_patients : โรค-จังหวัด-เดือน-เพศ */
 export interface MvMonthlyGenderPatientsTable {
   disease_id: number;
   province_id: number;
-  month_start: DateCol; // วันแรกของเดือน
+  month_start: DateCol;
   gender: string;
   monthly_patients: number;
 }
 
-/** ---------- รวมทั้งหมดใน schema ที่ Kysely มองเห็น ---------- */
-
+/** ---------- Kysely DB ---------- */
 export interface DBMethod {
-  // dim/ref tables
+  // dimension (อยู่ใน schema ใด schema หนึ่งใน search_path)
   diseases: DiseasesTable;
   provinces: ProvincesTable;
   districts: DistrictsTable;
   occupations: OccupationsTable;
 
-  // fact เดิม (ถ้ายังอยากใช้เทียบ / debug)
-  influenza_cases: InfluenzaCasesTable;
-
-  // materialized views (method_e)
+  // method_e MV
   mv_daily_province: MvDailyProvinceTable;
   mv_daily_region: MvDailyRegionTable;
   mv_daily_gender_province: MvDailyGenderProvinceTable;
@@ -123,20 +101,14 @@ export interface DBMethod {
   mv_monthly_gender_patients: MvMonthlyGenderPatientsTable;
 }
 
-/** ---------- type helper เวลาใช้ ---------- */
-
+/** ---------- helper types ---------- */
 export type DiseaseRow = Selectable<DiseasesTable>;
 export type ProvinceRow = Selectable<ProvincesTable>;
 export type DistrictRow = Selectable<DistrictsTable>;
 export type OccupationRow = Selectable<OccupationsTable>;
-export type InfluenzaCaseRow = Selectable<InfluenzaCasesTable>;
 
 export type MvDailyProvinceRow = Selectable<MvDailyProvinceTable>;
 export type MvDailyRegionRow = Selectable<MvDailyRegionTable>;
 export type MvDailyGenderProvinceRow = Selectable<MvDailyGenderProvinceTable>;
 export type MvDailyAgeProvinceRow = Selectable<MvDailyAgeProvinceTable>;
-export type MvMonthlyGenderPatientsRow =
-  Selectable<MvMonthlyGenderPatientsTable>;
-
-export type NewInfluenzaCase = Insertable<InfluenzaCasesTable>;
-export type UpdateInfluenzaCase = Updateable<InfluenzaCasesTable>;
+export type MvMonthlyGenderPatientsRow = Selectable<MvMonthlyGenderPatientsTable>;

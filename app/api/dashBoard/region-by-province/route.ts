@@ -11,30 +11,67 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก ref.provinces_moph
+ */
 async function resolveProvince(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
   if (/^\d+$/.test(p)) {
     const row = await db
-      .selectFrom("provinces")
-      .select(["province_id", "province_name_th", "region_id"])
-      .where("province_id", "=", Number(p))
+      .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+      .select([
+        sql<number>`p.province_no`.as("province_id"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
+        sql<number>`p.region_id`.as("region_id"),
+      ])
+      .where(sql`p.province_no`, "=", Number(p))
       .executeTakeFirst();
-    return row ?? null;
+    return row as any;
   }
 
   const row = await db
-    .selectFrom("provinces")
-    .select(["province_id", "province_name_th", "region_id"])
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select([
+      sql<number>`p.province_no`.as("province_id"),
+      sql<string>`p.province_name_th`.as("province_name_th"),
+      sql<number>`p.region_id`.as("region_id"),
+    ])
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return row ?? null;
+  return row as any;
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** รองรับ disease_id เป็นเลข หรือจะไม่ส่งมาก็ได้ */
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
+
     const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
     const selectedProvinceParam = (params.get("province") || "").trim();
@@ -59,34 +96,44 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // หาจังหวัดทั้งหมดในภาคเดียวกัน
+    const diseaseId = await resolveDiseaseId(params);
+
+    // ✅ จังหวัดทั้งหมดในภาคเดียวกัน (จาก ref.provinces_moph)
     const provincesInRegion = await db
-      .selectFrom("provinces")
-      .select(["province_id", "province_name_th"])
-      .where("region_id", "=", regionId)
-      .execute();
-
-    const provinceIds = provincesInRegion.map((x) => x.province_id);
-
-    // ดึงยอดผู้ป่วย/เสียชีวิตของทุกจังหวัดในภาคนั้น
-    const rows = await db
-      .selectFrom("influenza_cases as ic")
-      .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+      .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
       .select([
-        "p.province_name_th as province",
-        sql<number>`COUNT(*)`.as("patients"),
-        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
+        sql<number>`p.province_no`.as("province_id"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
       ])
-      .where("ic.onset_date_parsed", ">=", startDate)
-      .where("ic.onset_date_parsed", "<=", endDate)
-      .where("ic.province_id", "in", provinceIds)
-      .groupBy("p.province_name_th")
+      .where(sql`p.region_id`, "=", regionId)
       .execute();
 
-    const normalized = rows.map((r) => ({
+    const provinceIds = (provincesInRegion as any[]).map((x) => Number(x.province_id));
+
+    // ✅ รวมยอดผู้ป่วย/เสียชีวิตจาก MV รายวันระดับจังหวัด
+    // ✅ ระบุ schema ชัดเจน: method_e.mv_daily_province
+    let q = db
+      .selectFrom(sql`"method_e"."mv_daily_province"`.as("m"))
+      .innerJoin(sql`"ref"."provinces_moph"`.as("p"), sql`p.province_no`, "m.province_id")
+      .select([
+        sql<string>`p.province_name_th`.as("province"),
+        sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
+        sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("deaths"),
+      ])
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      .where("m.province_id", "in", provinceIds)
+      .groupBy(sql`p.province_name_th`);
+
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
+
+    const rows = await q.execute();
+
+    const normalized = (rows as any[]).map((r) => ({
       province: String(r.province),
       patients: Number(r.patients ?? 0),
       deaths: Number(r.deaths ?? 0),
+      region: String(regionId),
       regionId,
     }));
 
@@ -95,21 +142,24 @@ export async function GET(request: NextRequest) {
         province: selectedProv.province_name_th,
         patients: 0,
         deaths: 0,
+        region: String(regionId),
         regionId,
       };
 
-    // === คำนวณอันดับของจังหวัดที่เลือก (ตามจำนวนผู้ป่วย) ===
+    // อันดับตามผู้ป่วย
     const byPatientsDesc = [...normalized].sort((a, b) => b.patients - a.patients);
     const selectedIdx = byPatientsDesc.findIndex(
       (x) => x.province === selectedProv.province_name_th
     );
     const selectedPatientsRank = selectedIdx >= 0 ? selectedIdx + 1 : undefined;
 
-    // Top 5 ของภาค (ไม่รวมจังหวัดที่เลือก)
+    // ---- Top 5 (ไม่รวมจังหวัดที่เลือก) สำหรับกราฟผู้ป่วย ----
     const others = normalized.filter((x) => x.province !== selectedProv.province_name_th);
-
     const topPatients = [...others].sort((a, b) => b.patients - a.patients).slice(0, 5);
-    const topDeaths = [...others].sort((a, b) => b.deaths - a.deaths).slice(0, 5);
+
+    // ---- ✅ Top 5 ตามผู้เสียชีวิต: ต้อง “รวมจังหวัดที่เลือก” ด้วย ----
+    const deathsList = [...others, selectedRow]; // ใส่ selected กลับเข้ามา
+    const topDeaths = [...deathsList].sort((a, b) => b.deaths - a.deaths).slice(0, 5);
 
     const selectedProvinceExtra =
       selectedPatientsRank && selectedPatientsRank > 5
@@ -117,25 +167,27 @@ export async function GET(request: NextRequest) {
             province: selectedProv.province_name_th,
             patients: selectedRow.patients,
             rank: selectedPatientsRank,
-            regionId,
+            region: String(regionId),
           }
         : undefined;
 
     return NextResponse.json(
       {
         regionId,
-        selected: { ...selectedRow, patientsRank: selectedPatientsRank },
+        region: String(regionId),
+        selected: {
+          ...selectedRow,
+          patientsRank: selectedPatientsRank,
+          region: String(regionId),
+        },
         topPatients,
-        topDeaths,
+        topDeaths, // ✅ เพิ่มให้กราฟ deaths ใช้
         selectedProvince: selectedProvinceExtra,
       },
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("❌ API ERROR (region-by-province):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

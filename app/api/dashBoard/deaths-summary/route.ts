@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/kysely3/db";
+import { sql } from "kysely";
 
 export const runtime = "nodejs";
 
@@ -10,24 +11,53 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก query param:
+ * - ถ้าเป็นตัวเลข -> ใช้เป็น province_no
+ * - ถ้าเป็นชื่อ -> map จาก "ref".provinces_moph.province_name_th -> province_no
+ */
 async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
   if (/^\d+$/.test(p)) return Number(p);
 
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found as any)?.province_id ?? null;
 }
 
 function daysInclusive(start: Date, end: Date) {
   const ms = end.getTime() - start.getTime();
   const d = Math.floor(ms / 86400000) + 1;
   return Math.max(1, d);
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -52,33 +82,36 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ผู้เสียชีวิตในช่วงวันที่
-    const inRange = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [
-        eb.fn.count("death_date_parsed").as("total_deaths"),
-      ])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .executeTakeFirst();
+    const diseaseId = await resolveDiseaseId(params);
 
-    const totalDeaths = Number(inRange?.total_deaths ?? 0);
+    // ☠️ ผู้เสียชีวิตในช่วงวันที่ (รวมจาก mv_daily_province)
+    let inRangeQ = db
+      .selectFrom("mv_daily_province as m")
+      .select([sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("total_deaths")])
+      // ⚠️ ถ้า MV ของคุณใช้ province_no ให้เปลี่ยน m.province_id -> m.province_no
+      .where("m.province_id", "=", provinceId)
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate);
 
-    // เฉลี่ยต่อวัน (ปัดเศษเหมือนเดิมที่ใช้ ROUND)
+    if (diseaseId != null) inRangeQ = inRangeQ.where("m.disease_id", "=", diseaseId);
+
+    const inRange = await inRangeQ.executeTakeFirst();
+    const totalDeaths = Number((inRange as any)?.total_deaths ?? 0);
+
     const days = daysInclusive(startDate, endDate);
     const avgDeathsPerDay = Math.round(totalDeaths / days);
 
-    // ผู้เสียชีวิตสะสมทั้งหมด (ของจังหวัดนั้น)
-    const cum = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.count("death_date_parsed").as("cumulative_deaths")])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .executeTakeFirst();
+    // ☠️ สะสมทั้งหมด
+    let cumQ = db
+      .selectFrom("mv_daily_province as m")
+      .select([sql<number>`COALESCE(SUM(m.daily_deaths),0)`.as("cumulative_deaths")])
+      // ⚠️ ถ้า MV ของคุณใช้ province_no ให้เปลี่ยน m.province_id -> m.province_no
+      .where("m.province_id", "=", provinceId);
 
-    const cumulativeDeaths = Number(cum?.cumulative_deaths ?? 0);
+    if (diseaseId != null) cumQ = cumQ.where("m.disease_id", "=", diseaseId);
+
+    const cum = await cumQ.executeTakeFirst();
+    const cumulativeDeaths = Number((cum as any)?.cumulative_deaths ?? 0);
 
     return NextResponse.json(
       { totalDeaths, avgDeathsPerDay, cumulativeDeaths },

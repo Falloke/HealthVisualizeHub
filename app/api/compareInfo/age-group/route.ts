@@ -1,23 +1,21 @@
-// app/api/compareInfo/age-group/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
 import db from "@/lib/kysely3/db";
+import { resolveDiseaseId as resolveDiseaseIdLoose } from "@/lib/kysely3/resolveDiseaseId";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type AgeRow = { ageRange: string; patients: number };
-
-type RowMerged = {
-  ageRange: string;
-  mainPatients: number;
-  comparePatients: number;
-};
+type RowMerged = { ageRange: string; mainPatients: number; comparePatients: number };
 
 const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
 const AGE_SET = new Set<string>(AGE_ORDER as unknown as string[]);
 
 function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
+  const raw = (v ?? "").trim();
+  const d = new Date(raw);
   if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
   return d;
 }
@@ -68,7 +66,47 @@ function mergeAgeData(main: AgeRow[], compare: AgeRow[]): RowMerged[] {
   return base.concat(extras);
 }
 
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickDiseaseCode(sp: URLSearchParams) {
+  return (sp.get("disease") || sp.get("disease_code") || sp.get("code") || "").trim();
+}
+
+async function resolveDiseaseId(sp: URLSearchParams): Promise<number | null> {
+  // 1) ถ้ามี disease_id ส่งมา ใช้ตรง ๆ
+  const diseaseId = parseIntOrNull(sp.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  // 2) ถ้ามี code ให้ไป resolve แบบทน
+  const code = pickDiseaseCode(sp);
+  if (!code) return null;
+
+  return await resolveDiseaseIdLoose(code);
+}
+
+/** ✅ Resolve จังหวัดจาก ref.provinces_moph (รับได้ทั้งเลขและชื่อไทย) */
+async function resolveProvinceId(provinceParam: string): Promise<number | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) return Number(p);
+
+  const row = await db
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (row as any)?.province_id ?? null;
+}
+
 async function queryAgePatients(args: {
+  diseaseId: number | null;
   start_date: string;
   end_date: string;
   provinceNameTh: string;
@@ -76,40 +114,29 @@ async function queryAgePatients(args: {
   const start = parseDateOrThrow(args.start_date, "start_date");
   const end = parseDateOrThrow(args.end_date, "end_date");
 
-  const ageCase = sql<string>`
-    CASE
-      WHEN ic.age_y BETWEEN 0 AND 4 THEN '0-4'
-      WHEN ic.age_y BETWEEN 5 AND 9 THEN '5-9'
-      WHEN ic.age_y BETWEEN 10 AND 14 THEN '10-14'
-      WHEN ic.age_y BETWEEN 15 AND 19 THEN '15-19'
-      WHEN ic.age_y BETWEEN 20 AND 24 THEN '20-24'
-      WHEN ic.age_y BETWEEN 25 AND 44 THEN '25-44'
-      WHEN ic.age_y BETWEEN 45 AND 59 THEN '45-59'
-      WHEN ic.age_y >= 60 THEN '60+'
-      ELSE NULL
-    END
-  `.as("ageRange");
+  const provinceId = await resolveProvinceId(args.provinceNameTh);
+  if (!provinceId) return (AGE_ORDER as unknown as string[]).map((k) => ({ ageRange: k, patients: 0 }));
 
-  const rows = await db
-    .selectFrom("influenza_cases as ic")
-    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+  let q = db
+    .selectFrom(sql`"method_e"."mv_daily_age_province"`.as("m"))
     .select([
-      ageCase,
-      sql<number>`COUNT(*)`.as("patients"),
+      sql<string>`m.age_group`.as("ageRange"),
+      sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
     ])
-    .where("p.province_name_th", "=", args.provinceNameTh)
-    .where("ic.onset_date_parsed", ">=", start)
-    .where("ic.onset_date_parsed", "<=", end)
-    .where(sql`ic.age_y IS NOT NULL`)
-    .groupBy("ageRange")
-    .execute();
+    .where(sql`m.province_id`, "=", provinceId)
+    .where(sql`m.onset_date`, ">=", start)
+    .where(sql`m.onset_date`, "<=", end)
+    .groupBy(sql`m.age_group`);
 
-  // ทำให้ “ครบทุกช่วง” เสมอ
+  if (args.diseaseId != null) q = q.where(sql`m.disease_id`, "=", args.diseaseId);
+
+  const rows = await q.execute();
+
   const map = new Map<string, number>();
-  for (const r of rows) {
-    const k = String((r as any).ageRange ?? "").trim();
+  for (const r of rows as any[]) {
+    const k = String(r.ageRange ?? "").trim();
     if (!k) continue;
-    map.set(k, Number((r as any).patients ?? 0));
+    map.set(k, Number(r.patients ?? 0));
   }
 
   const ordered: AgeRow[] = (AGE_ORDER as unknown as string[]).map((k) => ({
@@ -117,7 +144,6 @@ async function queryAgePatients(args: {
     patients: map.get(k) ?? 0,
   }));
 
-  // เผื่อมี label แปลก ๆ จากข้อมูลจริง
   const extras = Array.from(map.keys())
     .filter((k) => !AGE_SET.has(k))
     .sort((a, b) => orderIndex(a) - orderIndex(b) || a.localeCompare(b))
@@ -139,16 +165,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "missing required query params" }, { status: 400 });
     }
 
+    const diseaseId = await resolveDiseaseId(sp);
+
     const [mainRows, compareRows] = await Promise.all([
-      queryAgePatients({ start_date, end_date, provinceNameTh: mainProvince }),
-      queryAgePatients({ start_date, end_date, provinceNameTh: compareProvince }),
+      queryAgePatients({ diseaseId, start_date, end_date, provinceNameTh: mainProvince }),
+      queryAgePatients({ diseaseId, start_date, end_date, provinceNameTh: compareProvince }),
     ]);
 
     const merged = mergeAgeData(mainRows, compareRows);
 
     return NextResponse.json(merged, {
       status: 200,
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (e: any) {
     console.error("❌ [compareInfo/age-group] error:", e);

@@ -12,20 +12,47 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+/**
+ * ✅ Resolve จังหวัดจาก query param:
+ * - ถ้าเป็นตัวเลข -> ใช้เป็น province_no
+ * - ถ้าเป็นชื่อ -> map จาก "ref".provinces_moph.province_name_th -> province_no
+ */
 async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  // ส่งเป็นเลข -> province_id
   if (/^\d+$/.test(p)) return Number(p);
 
-  // ส่งเป็นชื่อจังหวัดไทย -> map เป็น province_id
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select(sql<number>`p.province_no`.as("province_id"))
+    .where(sql`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found as any)?.province_id ?? null;
+}
+
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function resolveDiseaseId(params: URLSearchParams) {
+  const diseaseId = parseIntOrNull(params.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = (params.get("disease_code") || params.get("disease") || "").trim();
+  if (!code) return null;
+
+  const row = await db
+    .selectFrom("diseases")
+    .select(["disease_id"])
+    .where("disease_code", "=", code)
+    .executeTakeFirst();
+
+  return row?.disease_id ?? null;
 }
 
 export async function GET(request: NextRequest) {
@@ -41,40 +68,43 @@ export async function GET(request: NextRequest) {
 
     const provinceId = await resolveProvinceId(province);
     if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 📊 Query ผู้ป่วย grouped by gender
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select(["gender", sql<number>`COUNT(*)`.as("patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
-      .groupBy("gender")
-      .execute();
+    const diseaseId = await resolveDiseaseId(params);
+
+    let q = db
+      .selectFrom("mv_daily_gender_province as m")
+      .select([
+        "m.gender as gender",
+        sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"),
+      ])
+      .where("m.onset_date", ">=", startDate)
+      .where("m.onset_date", "<=", endDate)
+      // ⚠️ ถ้า MV ของคุณใช้ province_no ให้เปลี่ยน m.province_id -> m.province_no
+      .where("m.province_id", "=", provinceId)
+      .groupBy("m.gender");
+
+    if (diseaseId != null) q = q.where("m.disease_id", "=", diseaseId);
+
+    const rows = await q.execute();
 
     let male = 0;
     let female = 0;
     let unknown = 0;
 
-    for (const r of rows) {
-      const g = (r.gender || "").trim();
-      if (g === "M" || g === "ชาย") male += Number(r.patients);
-      else if (g === "F" || g === "หญิง") female += Number(r.patients);
-      else unknown += Number(r.patients);
+    for (const r of rows as any[]) {
+      const g = String(r.gender ?? "").trim();
+      const c = Number(r.patients ?? 0);
+      if (g === "M" || g === "ชาย") male += c;
+      else if (g === "F" || g === "หญิง") female += c;
+      else unknown += c;
     }
 
-    // เก็บ province ที่ส่งมาเดิมไว้ให้ UI ใช้ต่อเหมือนเดิม
-    return NextResponse.json([{ province, male, female, unknown }]);
+    // คืนรูปแบบเดิมที่ UI ใช้: [{ province, male, female, unknown }]
+    return NextResponse.json([{ province, male, female, unknown }], { status: 200 });
   } catch (err) {
     console.error("❌ API ERROR (gender-patients):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

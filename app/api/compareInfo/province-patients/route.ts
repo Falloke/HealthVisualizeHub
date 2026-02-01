@@ -1,20 +1,80 @@
-// app/api/compareInfo/province-patients/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
 import db from "@/lib/kysely3/db";
+import { resolveDiseaseId as resolveDiseaseIdLoose } from "@/lib/kysely3/resolveDiseaseId";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ProvinceSummary = { province: string; region?: string | null; patients: number };
 type APIResp = { ok: boolean; main?: ProvinceSummary; compare?: ProvinceSummary; error?: string };
 
 function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
+  const raw = (v ?? "").trim();
+  const d = new Date(raw);
   if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
   return d;
 }
 
+function parseIntOrNull(input: string | null) {
+  const s = (input ?? "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickDiseaseCode(sp: URLSearchParams) {
+  return (sp.get("disease") || sp.get("disease_code") || sp.get("code") || "").trim();
+}
+
+async function resolveDiseaseId(sp: URLSearchParams): Promise<number | null> {
+  const diseaseId = parseIntOrNull(sp.get("disease_id"));
+  if (diseaseId != null) return diseaseId;
+
+  const code = pickDiseaseCode(sp);
+  if (!code) return null;
+
+  return await resolveDiseaseIdLoose(code);
+}
+
+async function resolveProvince(provinceParam: string): Promise<{
+  province_id: number;
+  province_name_th: string;
+  region_id: number | null;
+} | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  // ถ้าเป็นเลข
+  if (/^\d+$/.test(p)) {
+    const row = await db
+      .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+      .select([
+        sql<number>`p.province_no`.as("province_id"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
+        sql<number>`p.region_id`.as("region_id"),
+      ])
+      .where(sql`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+    return row as any;
+  }
+
+  const row = await db
+    .selectFrom(sql`"ref"."provinces_moph"`.as("p"))
+    .select([
+      sql<number>`p.province_no`.as("province_id"),
+      sql<string>`p.province_name_th`.as("province_name_th"),
+      sql<number>`p.region_id`.as("region_id"),
+    ])
+    .where(sql`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return row as any;
+}
+
 async function queryProvincePatients(opts: {
+  diseaseId: number | null;
   start_date: string;
   end_date: string;
   provinceNameTh: string;
@@ -22,28 +82,24 @@ async function queryProvincePatients(opts: {
   const start = parseDateOrThrow(opts.start_date, "start_date");
   const end = parseDateOrThrow(opts.end_date, "end_date");
 
-  const row = await db
-    .selectFrom("provinces as p")
-    .leftJoin("influenza_cases as ic", (join) =>
-      join
-        .onRef("ic.province_id", "=", "p.province_id")
-        .on("ic.onset_date_parsed", ">=", start)
-        .on("ic.onset_date_parsed", "<=", end)
-    )
-    .select([
-      "p.province_name_th as province",
-      "p.region_id as region_id",
-      sql<number>`COUNT(ic.id)`.as("patients"),
-    ])
-    .where("p.province_name_th", "=", opts.provinceNameTh)
-    .groupBy(["p.province_name_th", "p.region_id"])
-    .executeTakeFirst();
+  const prov = await resolveProvince(opts.provinceNameTh);
+  if (!prov) return { province: opts.provinceNameTh, region: null, patients: 0 };
+
+  let q = db
+    .selectFrom(sql`"method_e"."mv_daily_province"`.as("m"))
+    .select(sql<number>`COALESCE(SUM(m.daily_patients),0)`.as("patients"))
+    .where(sql`m.province_id`, "=", prov.province_id)
+    .where(sql`m.onset_date`, ">=", start)
+    .where(sql`m.onset_date`, "<=", end);
+
+  if (opts.diseaseId != null) q = q.where(sql`m.disease_id`, "=", opts.diseaseId);
+
+  const row = await q.executeTakeFirst();
 
   return {
-    province: opts.provinceNameTh,
-    // ตอนนี้ schema มีแค่ region_id ยังไม่มีตารางชื่อภาค
-    region: row?.region_id != null ? String(row.region_id) : null,
-    patients: Number(row?.patients ?? 0),
+    province: prov.province_name_th,
+    region: prov.region_id != null ? String(prov.region_id) : null,
+    patients: Number((row as any)?.patients ?? 0),
   };
 }
 
@@ -63,17 +119,26 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const diseaseId = await resolveDiseaseId(sp);
+
     const [main, compare] = await Promise.all([
-      mainProvince ? queryProvincePatients({ start_date, end_date, provinceNameTh: mainProvince }) : Promise.resolve(undefined),
-      compareProvince ? queryProvincePatients({ start_date, end_date, provinceNameTh: compareProvince }) : Promise.resolve(undefined),
+      mainProvince
+        ? queryProvincePatients({ diseaseId, start_date, end_date, provinceNameTh: mainProvince })
+        : Promise.resolve(undefined),
+      compareProvince
+        ? queryProvincePatients({ diseaseId, start_date, end_date, provinceNameTh: compareProvince })
+        : Promise.resolve(undefined),
     ]);
 
     return NextResponse.json<APIResp>(
       { ok: true, ...(main ? { main } : {}), ...(compare ? { compare } : {}) },
-      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {
     console.error("❌ API ERROR (compareInfo/province-patients):", e);
-    return NextResponse.json<APIResp>({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return NextResponse.json<APIResp>(
+      { ok: false, error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }
