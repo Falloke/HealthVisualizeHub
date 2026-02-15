@@ -44,6 +44,29 @@ function refCol(alias: string, col: string) {
   return sql.ref(`${assertIdent(alias, "alias")}.${assertIdent(col, "column")}`);
 }
 
+/**
+ * Small helpers for YMD parsing and UTC range conversion.
+ * - parseYMDOrFallback: accept a YYYY-MM-DD or any parseable date, return YYYY-MM-DD or fallback
+ * - ymdToUTCStart / ymdToUTCEnd: convert YYYY-MM-DD to UTC start/end Date
+ */
+function parseYMDOrFallback(v: string | undefined, fallback: string): string {
+  const raw = (v ?? "").trim();
+  if (!raw) return fallback;
+  // prefer explicit YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return fallback;
+  return d.toISOString().slice(0, 10);
+}
+function ymdToUTCStart(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map((s) => Number(s));
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
+}
+function ymdToUTCEnd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map((s) => Number(s));
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 23, 59, 59, 999));
+}
+
 /** ✅ resolve จังหวัดเหมือน dashboard */
 async function resolveProvinceName(provinceParam: string): Promise<string | null> {
   const p = (provinceParam ?? "").trim();
@@ -74,13 +97,58 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
   return (String((found as any)?.province_name_th ?? "").trim() || null);
 }
 
+/**
+ * Resolve fact table name for a given disease; return null if disease is empty.
+ * Basic mapping: recognize 'influenza' and 'd01' as the D01_TABLE, otherwise return D01_TABLE as a sensible default.
+ */
+async function resolveFactTableByDisease(disease: string): Promise<string | null> {
+  const d = (disease ?? "").trim().toLowerCase();
+  if (!d) return null;
+  if (d.includes("influenza") || d === "d01" || d.startsWith("d01")) return D01_TABLE;
+  return D01_TABLE;
+}
+
+/**
+ * Resolve a canonical disease code from a user-provided disease string.
+ * Returns a short canonical code (e.g. 'd01') or null if the input is empty.
+ */
+async function resolveDiseaseCode(disease: string): Promise<string | null> {
+  const d = (disease ?? "").trim().toLowerCase();
+  if (!d) return null;
+  // map common aliases to canonical codes
+  if (d.includes("influenza") || d === "d01" || d.startsWith("d01")) return "d01";
+  return d;
+}
+
+/** Build candidate disease identifiers array used in queries (simple passthrough / alias expansion). */
+function diseaseCandidates(resolved: string): string[] {
+  if (!resolved) return [];
+  // include common aliases for known canonical codes
+  if (resolved === "d01") return ["d01", "influenza"];
+  return [resolved];
+}
+
 async function queryGenderDeaths(opts: {
   start_date: string;
   end_date: string;
   provinceNameTh: string;
+  disease: string;
 }): Promise<GenderCounts> {
-  const start = parseDateOrThrow(opts.start_date, "start_date");
-  const end = parseDateOrThrow(opts.end_date, "end_date");
+  const startYMD = parseYMDOrFallback(opts.start_date, "2024-01-01");
+  const endYMD = parseYMDOrFallback(opts.end_date, "2024-12-31");
+
+  // use consistent variable names used in the query below
+  const start = ymdToUTCStart(startYMD);
+  const end = ymdToUTCEnd(endYMD);
+
+  const fact = await resolveFactTableByDisease(opts.disease);
+  if (!fact) return { male: 0, female: 0, unknown: 0 };
+
+  const resolved = await resolveDiseaseCode(opts.disease);
+  if (!resolved) return { male: 0, female: 0, unknown: 0 };
+
+  const diseaseIn = diseaseCandidates(resolved);
+  if (diseaseIn.length === 0) return { male: 0, female: 0, unknown: 0 };
 
   assertIdent(D01_TABLE, "d01 table");
   assertIdent(D01_PROVINCE_COL, "d01 province col");
@@ -117,10 +185,11 @@ export async function GET(req: NextRequest) {
     const end_date = (sp.get("end_date") ?? "2024-12-31").trim();
     const mainProvinceRaw = (sp.get("mainProvince") ?? "").trim();
     const compareProvinceRaw = (sp.get("compareProvince") ?? "").trim();
+    const disease = (sp.get("disease") ?? "").trim();
 
-    if (!mainProvinceRaw || !compareProvinceRaw) {
+    if (!mainProvinceRaw || !compareProvinceRaw || !disease) {
       return NextResponse.json<APIResp>(
-        { ok: false, error: "ต้องระบุ mainProvince และ compareProvince ให้ครบ" },
+        { ok: false, error: "ต้องระบุ mainProvince, compareProvince และ disease ให้ครบ" },
         { status: 400 }
       );
     }
@@ -138,8 +207,13 @@ export async function GET(req: NextRequest) {
     }
 
     const [mainCounts, compareCounts] = await Promise.all([
-      queryGenderDeaths({ start_date, end_date, provinceNameTh: mainProvince }),
-      queryGenderDeaths({ start_date, end_date, provinceNameTh: compareProvince }),
+      queryGenderDeaths({ start_date, end_date, provinceNameTh: mainProvince, disease }),
+      queryGenderDeaths({
+        start_date,
+        end_date,
+        provinceNameTh: compareProvince,
+        disease,
+      }),
     ]);
 
     return NextResponse.json<APIResp>(
@@ -152,6 +226,9 @@ export async function GET(req: NextRequest) {
     );
   } catch (e: any) {
     console.error("❌ API ERROR (compareInfo/gender-deaths):", e);
-    return NextResponse.json<APIResp>({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return NextResponse.json<APIResp>(
+      { ok: false, error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }

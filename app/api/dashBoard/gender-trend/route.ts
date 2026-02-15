@@ -3,12 +3,28 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
+}
+
+function ymdToUTCStart(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
+}
+
+function ymdToUTCEnd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 23, 59, 59, 999));
+}
+
+function pickDisease(params: URLSearchParams): string | null {
+  const v = (params.get("disease") || params.get("disease_code") || "").trim();
+  return v || null;
 }
 
 async function resolveProvinceName(provinceParam: string): Promise<string | null> {
@@ -37,17 +53,27 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+    const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
+
+    const startDate = ymdToUTCStart(startYMD);
+    const endDate = ymdToUTCEnd(endYMD);
+
+    const provinceRaw = (params.get("province") || "").trim();
+    const diseaseCode = pickDisease(params);
+
+    // ✅ ไม่มี province -> คืน []
+    if (!provinceRaw) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const provinceName = await resolveProvinceName(province);
+    const provinceName = await resolveProvinceName(provinceRaw);
     if (!provinceName) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceRaw}` }, { status: 404 });
     }
 
     const monthExpr = sql<string>`TO_CHAR(ic.onset_date_parsed, 'YYYY-MM')`;
@@ -82,7 +108,10 @@ export async function GET(request: NextRequest) {
         female: monthlyData[m].female,
       }));
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("❌ API ERROR (gender-trend):", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

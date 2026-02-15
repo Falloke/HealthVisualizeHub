@@ -237,7 +237,7 @@ export default function GraphDeathsByRegion() {
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมใน {regionText || "—"}</h4>
+      <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมใน {regionText || ""}</h4>
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>

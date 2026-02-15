@@ -3,6 +3,8 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // กลุ่มอายุ
 const ageGroups = [
@@ -18,9 +20,8 @@ const ageGroups = [
 
 function parseDateOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
 /**
@@ -53,11 +54,20 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
+    const province = (params.get("province") ?? "").trim();
+
+    // default: last 30 days
+    const today = new Date();
+    const defaultEnd = today.toISOString().slice(0, 10);
+    const defaultStartDate = new Date(today);
+    defaultStartDate.setDate(defaultStartDate.getDate() - 30);
+    const defaultStart = defaultStartDate.toISOString().slice(0, 10);
+
+    const startDate = parseDateOrFallback(params.get("startDate"), defaultStart);
+    const endDate = parseDateOrFallback(params.get("endDate"), defaultEnd);
+
+    if (!province) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 

@@ -3,6 +3,8 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // กลุ่มอายุ
 const ageGroups = [
@@ -52,21 +54,37 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
   return (found?.province_name_th ?? "").trim() || null;
 }
 
+/**
+ * Read disease param from querystring (supports `disease` or `disease_code`)
+ */
+function pickDisease(params: URLSearchParams): string | null {
+  const d = (params.get("disease") || params.get("disease_code") || "").trim();
+  return d || null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
     const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+    // ✅ province ต้องมี แต่ถ้าไม่มีให้คืน [] (กันกราฟพัง)
+    const provinceRaw = (params.get("province") || "").trim();
+
+    // ✅ disease optional
+    const diseaseCode = pickDisease(params);
+
+    if (!provinceRaw) {
+      return NextResponse.json([], {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const provinceName = await resolveProvinceName(province);
+    const provinceName = await resolveProvinceName(provinceRaw);
     if (!provinceName) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceRaw}` }, { status: 404 });
     }
 
     // 📍 method_f/g: นับผู้ป่วยแยกตามอายุจาก d01_influenza (denormalized)

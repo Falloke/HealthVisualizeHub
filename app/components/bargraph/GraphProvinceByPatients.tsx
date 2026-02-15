@@ -19,20 +19,27 @@ import {
 } from "./GraphUtils";
 
 type ProvinceResp = {
-  province: string;
-  region: string;
-  patients: number | string;
+  province?: string;
+  region?: string;
+  patients?: number | string;
+  totalPatients?: number | string;
+  total_patients?: number | string;
 };
 
 type PatientsSummary = {
-  totalPatients: number | string;
-  avgPatientsPerDay: number | string;
-  cumulativePatients: number | string;
+  totalPatients?: number | string;
+  avgPatientsPerDay?: number | string;
+  cumulativePatients?: number | string;
+  total_patients?: number | string;
+  avg_patients_per_day?: number | string;
+  cumulative_patients?: number | string;
+  total?: number | string;
+  avg?: number | string;
+  cumulative?: number | string;
 };
 
 type Row = { province: string; region?: string; value: number };
 
-// ✅ ไม่ล็อกความสูงการ์ดแล้ว (แก้ปัญหาช่องว่างเยอะ)
 const HEADER_MIN_H = 64;
 const CHART_H = 160;
 
@@ -46,6 +53,16 @@ function toNumber(v: unknown): number {
     return Number.isFinite(n) ? n : 0;
   }
   return 0;
+}
+
+function pickNum(obj: any, keys: string[], fallback = 0): number {
+  for (const k of keys) {
+    if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") {
+      const n = toNumber(obj[k]);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return fallback;
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -90,7 +107,7 @@ export default function GraphProvinceByPatients() {
 
         const provText = await provRes.text();
         if (!provRes.ok) throw new Error(provText || "โหลดข้อมูลไม่สำเร็จ");
-        const provJson: ProvinceResp = provText ? JSON.parse(provText) : ({} as any);
+        const provJson: ProvinceResp = provText ? JSON.parse(provText) : {};
 
         const sumText = await sumRes.text();
         if (!sumRes.ok) throw new Error(sumText || "โหลดข้อมูลสรุปไม่สำเร็จ");
@@ -103,7 +120,7 @@ export default function GraphProvinceByPatients() {
             {
               province: provJson.province,
               region: provJson.region,
-              value: toNumber(provJson.patients),
+              value: pickNum(provJson, ["patients", "totalPatients", "total_patients"], 0),
             },
           ]);
         } else {
@@ -145,9 +162,26 @@ export default function GraphProvinceByPatients() {
     return clamp(Math.floor(s.length * 7) + 18, 70, 120);
   }, [data]);
 
+  // ✅ สำคัญ: fallback ไปค่ากราฟ (data[0].value) ถ้า summary key ไม่ตรง
+  const totalPatients = useMemo(
+    () => pickNum(summary, ["totalPatients", "total_patients", "total"], toNumber(data[0]?.value)),
+    [summary, data]
+  );
+  const avgPatientsPerDay = useMemo(
+    () => pickNum(summary, ["avgPatientsPerDay", "avg_patients_per_day", "avg"], 0),
+    [summary]
+  );
+  const cumulativePatients = useMemo(
+    () => pickNum(
+      summary,
+      ["cumulativePatients", "cumulative_patients", "cumulative"],
+      totalPatients
+    ),
+    [summary, totalPatients]
+  );
+
   return (
     <div className="rounded bg-white p-4 shadow">
-      {/* Header */}
       <div style={{ minHeight: HEADER_MIN_H }}>
         <h4 className="font-bold text-gray-900">ผู้ป่วยสะสมจังหวัด {headerProvince}</h4>
 
@@ -155,44 +189,29 @@ export default function GraphProvinceByPatients() {
           <p className="mt-1 text-sm text-gray-500">⏳ กำลังโหลด...</p>
         ) : error ? (
           <p className="mt-1 text-sm text-red-600">{error}</p>
-        ) : !summary ? (
-          <p className="mt-1 text-sm text-gray-500">ไม่พบข้อมูลผู้ป่วยในช่วงเวลานี้</p>
         ) : (
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-red-600 leading-none">
-              {toNumber(summary.totalPatients).toLocaleString()}
+              {totalPatients.toLocaleString()}
             </span>
             <span className="text-base font-normal text-gray-800 leading-none">ราย</span>
 
             <span className="ml-2 text-xs font-normal text-gray-700 sm:text-sm leading-none truncate">
-              เฉลี่ยวันละ{" "}
-              <span className="font-semibold">
-                {toNumber(summary.avgPatientsPerDay).toLocaleString()}
-              </span>{" "}
+              เฉลี่ยวันละ <span className="font-semibold">{avgPatientsPerDay.toLocaleString()}</span>{" "}
               คน/วัน <span className="mx-1">•</span> สะสม{" "}
-              <span className="font-semibold">
-                {toNumber(summary.cumulativePatients).toLocaleString()}
-              </span>{" "}
-              ราย
+              <span className="font-semibold">{cumulativePatients.toLocaleString()}</span> ราย
             </span>
           </div>
         )}
       </div>
 
-      {/* Chart (ล็อกสูงเฉพาะกราฟ แต่การ์ดไม่ล็อกแล้ว) */}
       <div className="relative mt-2" style={{ height: CHART_H }}>
         {loading ? (
-          <div className="flex h-full items-center justify-center text-sm text-gray-500">
-            ⏳ กำลังโหลดกราฟ...
-          </div>
+          <div className="flex h-full items-center justify-center text-sm text-gray-500">⏳ กำลังโหลดกราฟ...</div>
         ) : error ? (
-          <div className="flex h-full items-center justify-center text-sm text-red-600">
-            {error}
-          </div>
+          <div className="flex h-full items-center justify-center text-sm text-red-600">{error}</div>
         ) : data.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-gray-500">
-            ไม่พบข้อมูลสำหรับช่วงเวลานี้
-          </div>
+          <div className="flex h-full items-center justify-center text-sm text-gray-500">ไม่พบข้อมูลสำหรับช่วงเวลานี้</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
@@ -203,37 +222,15 @@ export default function GraphProvinceByPatients() {
               barGap={0}
               margin={{ ...CHART_MARGIN_BASE, right: rightMargin }}
             >
-              <XAxis
-                type="number"
-                tickFormatter={TH_NUMBER}
-                allowDecimals={false}
-                domain={[0, xMax]}
-                tickMargin={8}
-              />
-
-              <YAxis
-                type="category"
-                dataKey="province"
-                width={yAxisWidth}
-                interval={0}
-                padding={{ top: 0, bottom: 0 }}
-                tick={<OneLineTick />}
-              />
-
+              <XAxis type="number" tickFormatter={TH_NUMBER} allowDecimals={false} domain={[0, xMax]} tickMargin={8} />
+              <YAxis type="category" dataKey="province" width={yAxisWidth} interval={0} padding={{ top: 0, bottom: 0 }} tick={<OneLineTick />} />
               <Tooltip
                 content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />}
                 wrapperStyle={{ zIndex: 10 }}
                 cursor={{ fill: "rgba(0,0,0,0.04)" }}
                 offset={12}
               />
-
-              <Bar
-                dataKey="value"
-                name="ผู้ป่วยสะสม"
-                fill="#2185D5"
-                radius={[0, 6, 6, 0]}
-                isAnimationActive={false}
-              >
+              <Bar dataKey="value" name="ผู้ป่วยสะสม" fill="#2185D5" radius={[0, 6, 6, 0]} isAnimationActive={false}>
                 <LabelList dataKey="value" content={<ValueLabelRight />} />
               </Bar>
             </BarChart>

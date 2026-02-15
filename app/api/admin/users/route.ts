@@ -4,8 +4,22 @@ import prisma from "@/lib/connect-db";
 import { requireAdmin } from "@/lib/auth-guards";
 import bcrypt from "bcryptjs";
 
+export const runtime = "nodejs"; // ✅ ป้องกัน Edge Runtime issue (bcrypt/prisma)
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function toCleanString(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+function toOptionalDate(v: unknown): Date | undefined {
+  const s = toCleanString(v);
+  if (!s) return undefined;
+
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return undefined; // กันวันไม่ถูกต้อง
+  return d;
+}
 
 /* ---------------- GET: list users + total usage time ---------------- */
 
@@ -37,17 +51,14 @@ export async function GET() {
     const usageByUser = new Map<number, number>();
 
     if (ids.length > 0) {
-      // 2) รวมเวลาจากตาราง UserSession (ไม่ใช้ queryRaw แล้ว)
+      // 2) รวมเวลาจากตาราง UserSession
       const sums = await prisma.userSession.groupBy({
         by: ["userId"],
         where: {
           userId: { in: ids },
-          // นับเฉพาะ session ที่มี durationSec แล้ว (จบ session แล้ว)
           durationSec: { not: null },
         },
-        _sum: {
-          durationSec: true,
-        },
+        _sum: { durationSec: true },
       });
 
       for (const row of sums) {
@@ -82,16 +93,21 @@ export async function POST(request: Request) {
   if (!gate.ok) return gate.response;
 
   try {
-    const {
-      first_name = "",
-      last_name = "",
-      email = "",
-      password = "",
-      role = "User",
-      position = "",
-      province = "",
-      brith_date,
-    } = await request.json();
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+
+    const first_name = toCleanString(body.first_name);
+    const last_name = toCleanString(body.last_name);
+    const email = toCleanString(body.email).toLowerCase();
+    const password = toCleanString(body.password);
+
+    const role = toCleanString(body.role) || "User";
+    const position = toCleanString(body.position);
+    const province = toCleanString(body.province);
+
+    const birthDateValue = toOptionalDate(body.brith_date);
 
     if (!first_name || !last_name || !email || !password) {
       return NextResponse.json(
@@ -111,8 +127,8 @@ export async function POST(request: Request) {
       province,
       password: hash,
     };
-    if (brith_date !== undefined && brith_date !== null && brith_date !== "") {
-      data.brith_date = new Date(brith_date);
+    if (birthDateValue !== undefined) {
+      data.brith_date = birthDateValue;
     }
 
     const created = await prisma.user.create({
@@ -155,33 +171,43 @@ export async function PUT(request: Request) {
   if (!gate.ok) return gate.response;
 
   try {
-    const {
-      id,
-      first_name,
-      last_name,
-      email,
-      role,
-      position,
-      province,
-      brith_date,
-    } = await request.json();
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
-    const numId = Number(id);
+    const numId = Number(body.id);
     if (!numId || Number.isNaN(numId)) {
       return NextResponse.json({ error: "Invalid id" }, { status: 422 });
     }
 
+    // ✅ updateData ชัดเจนและสะอาด
+    const updateData: any = {};
+
+    if (body.first_name !== undefined)
+      updateData.first_name = toCleanString(body.first_name);
+    if (body.last_name !== undefined)
+      updateData.last_name = toCleanString(body.last_name);
+    if (body.email !== undefined)
+      updateData.email = toCleanString(body.email).toLowerCase();
+    if (body.role !== undefined) updateData.role = toCleanString(body.role);
+    if (body.position !== undefined)
+      updateData.position = toCleanString(body.position);
+    if (body.province !== undefined)
+      updateData.province = toCleanString(body.province);
+
+    // วันเกิด: ถ้าส่งมาแล้วเป็นค่าว่าง -> ล้างค่า (ตั้งเป็น null)
+    // (กรณีนี้ต้องให้ schema รองรับ null ถ้าใน DB เป็น nullable)
+    if (body.brith_date !== undefined) {
+      const d = toOptionalDate(body.brith_date);
+      if (d) updateData.brith_date = d;
+      // ถ้าผู้ใช้ส่ง "" มาเพื่อเคลียร์วันเกิด
+      else updateData.brith_date = null;
+    }
+
     const updated = await prisma.user.update({
       where: { id: numId },
-      data: {
-        ...(first_name !== undefined ? { first_name } : {}),
-        ...(last_name !== undefined ? { last_name } : {}),
-        ...(email !== undefined ? { email } : {}),
-        ...(role !== undefined ? { role } : {}),
-        ...(position !== undefined ? { position } : {}),
-        ...(province !== undefined ? { province } : {}),
-        ...(brith_date ? { brith_date: new Date(brith_date) } : {}),
-      },
+      data: updateData,
       select: {
         id: true,
         first_name: true,

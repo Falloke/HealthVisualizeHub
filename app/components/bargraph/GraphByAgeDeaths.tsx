@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import {
   BarChart,
   Bar,
@@ -32,10 +33,8 @@ function getAgeLabel(range: string, mode: "full" | "short" = "full"): string {
 }
 
 /** Tooltip: ช่วงอายุ (คำอธิบาย) + ผู้เสียชีวิตสะสม : xx ราย */
-function AgeDeathsTooltip({
-  active,
-  payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+function AgeDeathsTooltip(props: TooltipProps<number, string> & { payload?: any }): ReactElement | null {
+  const { active, payload } = props;
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as AgeRow | undefined;
@@ -97,7 +96,7 @@ export default function GraphByGenderDeaths() {
   return (
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
-        ผู้เสียชีวิตสะสมรายช่วงอายุ ({province || "—"})
+        ผู้เสียชีวิตสะสมรายช่วงอายุ ({province || ""})
       </h4>
       {loading ? (
         <p>⏳ กำลังโหลด...</p>

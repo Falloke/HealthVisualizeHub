@@ -3,12 +3,14 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+// -------------------- utils --------------------
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
 async function resolveProvinceName(provinceParam: string): Promise<string | null> {
@@ -34,16 +36,18 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
   return (found?.province_name_th ?? "").trim() || null;
 }
 
+// -------------------- route --------------------
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
-    }
+    const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
+
+    // define missing variables
+    const startDate = startYMD;
+    const endDate = endYMD;
+    const province = (params.get("province") ?? "").trim();
 
     const provinceName = await resolveProvinceName(province);
     if (!provinceName) {
@@ -71,7 +75,7 @@ export async function GET(request: NextRequest) {
     }
 
     // คืนรูปแบบเดิมให้ UI ใช้ต่อ
-    return NextResponse.json([{ province, male, female, unknown }]);
+    return NextResponse.json([{ province: provinceName, male, female, unknown }]);
   } catch (err) {
     console.error("❌ API ERROR (gender-patients):", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

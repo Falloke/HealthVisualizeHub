@@ -3,12 +3,16 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim(); // เช่น "date"
+
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
 async function resolveProvinceName(provinceParam: string): Promise<string | null> {
@@ -37,17 +41,14 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
-    }
+    const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
 
-    const provinceName = await resolveProvinceName(province);
+    const provinceParam = (params.get("province") ?? "").trim();
+    const provinceName = await resolveProvinceName(provinceParam);
     if (!provinceName) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceParam}` }, { status: 404 });
     }
 
     const rows = await (db as any)
@@ -55,8 +56,8 @@ export async function GET(request: NextRequest) {
       .select(["ic.gender as gender", sql<number>`COUNT(ic.death_date_parsed)`.as("deaths")])
       .where("ic.province", "=", provinceName)
       .where("ic.death_date_parsed", "is not", null)
-      .where("ic.death_date_parsed", ">=", startDate)
-      .where("ic.death_date_parsed", "<=", endDate)
+      .where("ic.death_date_parsed", ">=", startYMD)
+      .where("ic.death_date_parsed", "<=", endYMD)
       .groupBy("ic.gender")
       .execute();
 
@@ -69,10 +70,13 @@ export async function GET(request: NextRequest) {
       else if (g === "F" || g === "หญิง") female += Number((r as any).deaths ?? 0);
     }
 
-    return NextResponse.json([
-      { gender: "ชาย", value: male },
-      { gender: "หญิง", value: female },
-    ]);
+    return NextResponse.json(
+      [
+        { gender: "ชาย", value: male },
+        { gender: "หญิง", value: female },
+      ],
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (err) {
     console.error("❌ API ERROR (gender-deaths):", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

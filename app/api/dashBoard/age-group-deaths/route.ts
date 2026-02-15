@@ -3,8 +3,15 @@ import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-// กลุ่มอายุ
+// mapping ชื่อคอลัมน์วันเสียชีวิต (กัน schema เปลี่ยน)
+const DEATH_DATE_COL = process.env.DB_DEATH_DATE_COL || "death_date_parsed";
+// ถ้าคอลัมน์เป็น timestamptz แล้วอยากเทียบเป็น date ให้ตั้ง "date"
+const DEATH_DATE_CAST = (process.env.DB_DEATH_DATE_CAST || "").trim(); // เช่น "date"
+
+// ✅ กลุ่มอายุ
 const ageGroups = [
   { label: "0-4", min: 0, max: 4 },
   { label: "5-9", min: 5, max: 9 },
@@ -16,11 +23,10 @@ const ageGroups = [
   { label: "60+", min: 60, max: 200 },
 ];
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
 }
 
 /**
@@ -53,17 +59,20 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
-    const province = params.get("province");
 
-    if (!province || !province.trim()) {
+    const startDate = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
+    const endDate = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
+
+    const provinceParam = (params.get("province") || "").trim();
+    const diseaseCode = (params.get("disease") || "").trim() || null;
+
+    if (!provinceParam) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const provinceName = await resolveProvinceName(province);
+    const provinceName = await resolveProvinceName(provinceParam);
     if (!provinceName) {
-      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceParam}` }, { status: 404 });
     }
 
     // 📍 method_f/g: ผู้เสียชีวิตของจังหวัดนั้น (นับจาก death_date_parsed)
@@ -89,9 +98,10 @@ export async function GET(request: NextRequest) {
       if (group) grouped[group.label] += Number((row as any).deaths ?? 0);
     }
 
-    const result = Object.entries(grouped).map(([ageRange, deaths]) => ({
-      ageRange,
-      deaths,
+    // ✅ คืนผลเรียงตาม ageGroups เสมอ
+    const result = ageGroups.map((g) => ({
+      ageRange: g.label,
+      deaths: grouped[g.label] ?? 0,
     }));
 
     return NextResponse.json(result, {

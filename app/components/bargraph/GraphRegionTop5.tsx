@@ -337,7 +337,7 @@ export default function GraphRegionTop5() {
       <div className="mb-2 flex items-start justify-between gap-3">
         <h4 className="font-bold">{title}</h4>
         {province ? (
-          <span className="text-xs text-gray-500">จังหวัดที่เลือก: {province}</span>
+          <span className="text-xs text-gray-500"></span>
         ) : null}
       </div>
 

@@ -4,12 +4,35 @@ import { sql } from "kysely";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function parseDateOrFallback(input: string | null, fallback: string) {
+// ----------------------
+// ✅ Helpers (YMD + UTC)
+// ----------------------
+function parseYMDOrFallback(input: string | null, fallback: string) {
   const raw = (input && input.trim()) || fallback;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return new Date(fallback);
-  return d;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  return raw;
+}
+
+function ymdToUTCStart(ymd: string): string {
+  // convert YYYY-MM-DD to an ISO UTC start-of-day timestamp
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+  return dt.toISOString();
+}
+
+function ymdToUTCEnd(ymd: string): string {
+  // convert YYYY-MM-DD to an ISO UTC end-of-day timestamp
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+  return dt.toISOString();
+}
+
+function pickDisease(p: URLSearchParams): string | null {
+  // simple helper to read a "disease" query parameter (returns null if absent/empty)
+  const raw = (p.get("disease") || "").trim();
+  return raw ? raw : null;
 }
 
 type RefProvince = {
@@ -57,12 +80,22 @@ async function resolveProvince(provinceParam: string): Promise<RefProvince | nul
 export async function GET(request: NextRequest) {
   try {
     const p = request.nextUrl.searchParams;
-    const startDate = parseDateOrFallback(p.get("start_date"), "2024-01-01");
-    const endDate = parseDateOrFallback(p.get("end_date"), "2024-12-31");
-    const province = p.get("province")?.trim();
 
+    const startYMD = parseYMDOrFallback(p.get("start_date"), "2024-01-01");
+    const endYMD = parseYMDOrFallback(p.get("end_date"), "2024-12-31");
+
+    const startDate = ymdToUTCStart(startYMD);
+    const endDate = ymdToUTCEnd(endYMD);
+
+    const province = (p.get("province") || "").trim();
+    const disease = pickDisease(p);
+
+    // ✅ ถ้าไม่มีจังหวัด -> คืนค่า 0 (กันกราฟพัง)
     if (!province) {
-      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
+      return NextResponse.json(
+        { province: "", regionId: null, patients: 0, deaths: 0 },
+        { status: 200 }
+      );
     }
 
     const prov = await resolveProvince(province);

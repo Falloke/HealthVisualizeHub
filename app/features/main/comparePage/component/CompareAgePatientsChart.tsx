@@ -7,11 +7,11 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  TooltipProps,
   ResponsiveContainer,
   LabelList,
   Legend,
 } from "recharts";
-import type { TooltipProps } from "recharts";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
@@ -48,8 +48,8 @@ const AgeCompareTooltip = React.memo(function AgeCompareTooltip(
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
-  const main = payload.find((p) => p.dataKey === "mainPatients");
-  const compare = payload.find((p) => p.dataKey === "comparePatients");
+  const main = payload.find((p) => p?.dataKey === "mainPatients");
+  const compare = payload.find((p) => p?.dataKey === "comparePatients");
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -132,12 +132,13 @@ export default function CompareAgePatientsChart() {
   const [fetchOk, setFetchOk] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
+  const hasDisease = !!diseaseCode;
 
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
   const requestUrl = useMemo(() => {
-    if (!hasBoth) return "";
+    if (!hasBoth || !hasDisease) return "";
 
     const sp = new URLSearchParams();
     sp.set("disease", diseaseCode || "D01");
@@ -147,10 +148,10 @@ export default function CompareAgePatientsChart() {
     sp.set("compareProvince", compareProvince!);
 
     return `/api/compareInfo/age-group?${sp.toString()}`;
-  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
+  }, [hasBoth, hasDisease, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
   useEffect(() => {
-    if (!hasBoth || !requestUrl) {
+    if (!hasBoth || !hasDisease || !requestUrl) {
       setRows([]);
       setLoading(false);
       setNoPatients(false);
@@ -221,7 +222,7 @@ export default function CompareAgePatientsChart() {
       ac.abort();
       inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, requestUrl]);
+  }, [hasBoth, hasDisease, requestUrl]);
 
   const xMax = useMemo(() => {
     let m = 0;
