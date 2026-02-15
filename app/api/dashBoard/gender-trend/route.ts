@@ -1,6 +1,5 @@
-// app/api/dashBoard/gender-trend/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -12,18 +11,27 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  if (/^\d+$/.test(p)) return Number(p);
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
 
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found?.province_name_th ?? "").trim() || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -37,43 +45,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 📊 query นับผู้ป่วย grouped by เดือน + เพศ
-    const monthExpr = sql<string>`TO_CHAR(onset_date_parsed, 'YYYY-MM')`;
+    const monthExpr = sql<string>`TO_CHAR(ic.onset_date_parsed, 'YYYY-MM')`;
 
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select([
-        monthExpr.as("month"),
-        "gender",
-        sql<number>`COUNT(*)`.as("count"),
-      ])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([monthExpr.as("month"), "ic.gender as gender", sql<number>`COUNT(*)`.as("count")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
       .groupBy(monthExpr)
-      .groupBy("gender")
-      .orderBy(monthExpr)
+      .groupBy("ic.gender")
+      .orderBy("month")
       .execute();
 
-    // แปลงเป็น { month, male, female }
     const monthlyData: Record<string, { male: number; female: number }> = {};
 
     for (const r of rows) {
-      const month = String(r.month);
+      const month = String((r as any).month);
       if (!monthlyData[month]) monthlyData[month] = { male: 0, female: 0 };
 
-      const g = (r.gender || "").trim();
-      if (g === "M" || g === "ชาย") monthlyData[month].male += Number(r.count);
-      else if (g === "F" || g === "หญิง")
-        monthlyData[month].female += Number(r.count);
+      const g = String((r as any).gender ?? "").trim();
+      if (g === "M" || g === "ชาย") monthlyData[month].male += Number((r as any).count ?? 0);
+      else if (g === "F" || g === "หญิง") monthlyData[month].female += Number((r as any).count ?? 0);
     }
 
     const result = Object.keys(monthlyData)
@@ -87,9 +85,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error("❌ API ERROR (gender-trend):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

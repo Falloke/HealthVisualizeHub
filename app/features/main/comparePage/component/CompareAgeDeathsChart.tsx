@@ -31,16 +31,15 @@ type CacheEntry = {
 const CHART_HEIGHT = 400;
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
-const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip({
-  active,
-  payload,
-}: TooltipProps<number, string>): JSX.Element | null {
+const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip(props: TooltipProps<number, string>): React.ReactElement | null {
+  const active = (props as any).active;
+  const payload = (props as any).payload as any[] | undefined;
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
-  const main = payload.find((p) => p.dataKey === "mainDeaths");
-  const compare = payload.find((p) => p.dataKey === "compareDeaths");
+  const main = payload.find((p: any) => p.dataKey === "mainDeaths");
+  const compare = payload.find((p: any) => p.dataKey === "compareDeaths");
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -226,7 +225,7 @@ export default function CompareAgeDeathsChart() {
       <h4 className="mb-2 font-bold">
         เปรียบเทียบผู้เสียชีวิตสะสมรายช่วงอายุ{" "}
         {hasBoth
-          ? `(${mainProvince} vs ${compareProvince})`
+          ? `${mainProvince} และ ${compareProvince}`
           : "(เลือกระบุจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ)"}
       </h4>
 

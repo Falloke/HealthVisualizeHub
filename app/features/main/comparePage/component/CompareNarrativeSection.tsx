@@ -134,7 +134,7 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `compare_narrative_${baseProvince}_vs_${compareProvince}_${start_date}_${end_date}.txt`;
+    a.download = `compare_narrative_${baseProvince}_กับ_${compareProvince}_${start_date}_${end_date}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   }

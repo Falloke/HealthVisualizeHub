@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     const name_th = (body.name_th ?? "").trim() || null;
     const name_en = (body.name_en ?? "").trim() || null;
 
-    const existing = await db
+    const existing = await (db as any)
       .selectFrom("diseases")
       .select("code")
       .where("code", "=", code)
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const inserted = await db
+    const inserted = await (db as any)
       .insertInto("diseases")
       .values({ code, name_th, name_en })
       .returning(["code", "name_th", "name_en"])
@@ -120,7 +120,7 @@ export async function PUT(request: Request) {
       updateData.name_en = (body.name_en ?? "").trim() || null;
     }
 
-    const updated = await db
+    const updated = await (db as any)
       .updateTable("diseases")
       .set(updateData)
       .where("code", "=", code)

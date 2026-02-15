@@ -1,6 +1,6 @@
-// app/api/dashBoard/patients-summary/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
+import { sql } from "kysely";
 
 export const runtime = "nodejs";
 
@@ -11,18 +11,27 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+async function resolveProvinceNameOrNull(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  if (/^\d+$/.test(p)) return Number(p);
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
 
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found?.province_name_th ?? "").trim() || null;
 }
 
 function daysInclusive(start: Date, end: Date) {
@@ -39,67 +48,36 @@ export async function GET(request: NextRequest) {
     const province = params.get("province");
 
     if (!province || !province.trim()) {
-      // คืนค่า default 200 เพื่อให้ UI ไม่พัง
-      return NextResponse.json(
-        {
-          totalPatients: 0,
-          avgPatientsPerDay: 0,
-          cumulativePatients: 0,
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json(
-        {
-          totalPatients: 0,
-          avgPatientsPerDay: 0,
-          cumulativePatients: 0,
-        },
-        { status: 200 }
-      );
+    const provinceName = await resolveProvinceNameOrNull(province);
+    if (!provinceName) {
+      return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
     }
 
-    // ผู้ป่วยในช่วงวันที่
-    const inRange = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.countAll().as("total_patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
+    const inRange = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select((eb: any) => [eb.fn.countAll().as("total_patients")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
       .executeTakeFirst();
 
-    const totalPatients = Number(inRange?.total_patients ?? 0);
+    const totalPatients = Number((inRange as any)?.total_patients ?? 0);
+    const avgPatientsPerDay = Math.round(totalPatients / daysInclusive(startDate, endDate));
 
-    // เฉลี่ยต่อวัน (ปัดเศษเหมือนเดิมที่ใช้ ROUND)
-    const days = daysInclusive(startDate, endDate);
-    const avgPatientsPerDay = Math.round(totalPatients / days);
-
-    // ผู้ป่วยสะสมทั้งหมด (ของจังหวัดนั้น)
-    const cum = await db
-      .selectFrom("influenza_cases")
-      .select((eb) => [eb.fn.countAll().as("cumulative_patients")])
-      .where("province_id", "=", provinceId)
+    const cum = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select((eb: any) => [eb.fn.countAll().as("cumulative_patients")])
+      .where("ic.province", "=", provinceName)
       .executeTakeFirst();
 
-    const cumulativePatients = Number(cum?.cumulative_patients ?? 0);
+    const cumulativePatients = Number((cum as any)?.cumulative_patients ?? 0);
 
-    return NextResponse.json(
-      { totalPatients, avgPatientsPerDay, cumulativePatients },
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ totalPatients, avgPatientsPerDay, cumulativePatients }, { status: 200 });
   } catch (error) {
     console.error("❌ API ERROR (patients-summary):", error);
-    // คืน default 200 เพื่อลด error ฝั่ง UI
-    return NextResponse.json(
-      {
-        totalPatients: 0,
-        avgPatientsPerDay: 0,
-        cumulativePatients: 0,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
   }
 }

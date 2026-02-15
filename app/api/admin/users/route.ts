@@ -102,17 +102,21 @@ export async function POST(request: Request) {
 
     const hash = await bcrypt.hash(password, 10);
 
+    const data: any = {
+      first_name,
+      last_name,
+      email,
+      role,
+      position,
+      province,
+      password: hash,
+    };
+    if (brith_date !== undefined && brith_date !== null && brith_date !== "") {
+      data.brith_date = new Date(brith_date);
+    }
+
     const created = await prisma.user.create({
-      data: {
-        first_name,
-        last_name,
-        email,
-        role,
-        position,
-        province,
-        ...(brith_date ? { brith_date: new Date(brith_date) } : {}),
-        password: hash,
-      },
+      data,
       select: {
         id: true,
         first_name: true,

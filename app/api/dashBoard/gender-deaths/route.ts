@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -11,18 +11,27 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  if (/^\d+$/.test(p)) return Number(p);
+  if (/^\d+$/.test(p)) {
+    const found = await (db as any)
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
 
-  const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await (db as any)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found?.province_name_th ?? "").trim() || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -36,31 +45,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select(["gender", sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("province_id", "=", provinceId)
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .groupBy("gender")
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select(["ic.gender as gender", sql<number>`COUNT(ic.death_date_parsed)`.as("deaths")])
+      .where("ic.province", "=", provinceName)
+      .where("ic.death_date_parsed", "is not", null)
+      .where("ic.death_date_parsed", ">=", startDate)
+      .where("ic.death_date_parsed", "<=", endDate)
+      .groupBy("ic.gender")
       .execute();
 
     let male = 0;
     let female = 0;
 
     for (const r of rows) {
-      const g = (r.gender || "").trim();
-      if (g === "M" || g === "ชาย") male += Number(r.deaths);
-      else if (g === "F" || g === "หญิง") female += Number(r.deaths);
+      const g = String((r as any).gender ?? "").trim();
+      if (g === "M" || g === "ชาย") male += Number((r as any).deaths ?? 0);
+      else if (g === "F" || g === "หญิง") female += Number((r as any).deaths ?? 0);
     }
 
     return NextResponse.json([
@@ -69,9 +75,6 @@ export async function GET(request: NextRequest) {
     ]);
   } catch (err) {
     console.error("❌ API ERROR (gender-deaths):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

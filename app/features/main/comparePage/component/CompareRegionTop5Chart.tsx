@@ -468,15 +468,15 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
       const a = mainProvince || "—";
       const b = compareProvince || "—";
       return reg
-        ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${a} อยู่ลำดับที่ ${rankMain ?? "—"} • ${b} อยู่ลำดับที่ ${
+        ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${a} อยู่ลำดับที่ ${rankMain ?? "—"} • ${b} อยู่ลำดับที่ ${
             rankCompareInSame ?? "—"
-          })`
-        : `Top 5 ผู้ป่วยสะสมในภูมิภาคเดียวกัน (${a} • ${b})`;
+          }`
+        : `Top 5 ผู้ป่วยสะสมในภูมิภาคเดียวกัน ${a} • ${b}`;
     }
 
     return reg
-      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${mainProvince || "—"} อยู่ลำดับที่ ${rankMain ?? "—"})`
-      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดหลัก (${mainProvince || "—"})`;
+      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${mainProvince || "—"} อยู่ลำดับที่ ${rankMain ?? "—"}`
+      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดหลัก ${mainProvince || "—"}`;
   }, [
     data?.mainRegion,
     sameRegion,
@@ -496,8 +496,8 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
     const rank = findRank(compareRowsRaw, compareProvince);
 
     return reg
-      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} (${compareProvince || "—"} อยู่ลำดับที่ ${rank ?? "—"})`
-      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดที่เปรียบเทียบ (${compareProvince || "—"})`;
+      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${compareProvince || "—"} อยู่ลำดับที่ ${rank ?? "—"}`
+      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดที่เปรียบเทียบ ${compareProvince || "—"}`;
   }, [data?.compareRegion, sameRegion, compareRowsRaw, compareProvince, regionById, regionByKey]);
 
   if (!hasBoth) {

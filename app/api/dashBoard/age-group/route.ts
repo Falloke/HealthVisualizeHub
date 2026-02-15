@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -23,20 +23,33 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
+/**
+ * ✅ ใช้ ref.provinces_moph แทน provinces
+ * - รับ province ได้ทั้งเลข (province_no) หรือชื่อไทย (province_name_th)
+ */
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  // ถ้าส่งเป็นเลข -> ถือว่าเป็น province_id
-  if (/^\d+$/.test(p)) return Number(p);
+  // ส่งเป็นเลข -> province_no
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
 
-  // ถ้าส่งเป็นชื่อจังหวัดไทย -> map ไปเป็น province_id
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  // ส่งเป็นชื่อไทย -> เช็คชื่อมาตรฐานจาก ref.provinces_moph
   const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found?.province_name_th ?? "").trim() || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -51,23 +64,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-    const provinceId = await resolveProvinceId(province);
-    if (!provinceId) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 📍 ดึงจำนวนผู้ป่วยแยกตามอายุ (age_y) ของจังหวัดนั้น จากตาราง influenza_cases
-    const rows = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(*)`.as("patients"), "age_y"])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", provinceId)
-      .where("age_y", "is not", null)
-      .groupBy("age_y")
+    // 📍 method_f/g: นับผู้ป่วยแยกตามอายุจาก d01_influenza (denormalized)
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(*)`.as("patients"), "ic.age_y as age_y"])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
+      .where("ic.age_y", "is not", null)
+      .groupBy("ic.age_y")
       .execute();
 
     // 📊 Map age → group
@@ -75,11 +85,11 @@ export async function GET(request: NextRequest) {
     for (const g of ageGroups) grouped[g.label] = 0;
 
     for (const row of rows) {
-      const age = Number(row.age_y);
+      const age = Number((row as any).age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number(row.patients);
+      if (group) grouped[group.label] += Number((row as any).patients ?? 0);
     }
 
     const result = Object.entries(grouped).map(([ageRange, patients]) => ({
@@ -93,9 +103,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

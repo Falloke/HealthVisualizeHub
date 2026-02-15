@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphDeathsByRegion.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -23,8 +22,17 @@ type DataRow = {
   province: string;
   patients: number;
   deaths: number;
-  region?: string; // บาง API อาจไม่มี
+  region?: string;
 };
+
+function toNumber(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  if (typeof v === "string") {
+    const n = Number(v.replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
 
 function regionLabel(region?: string | null): string {
   if (!region) return "";
@@ -32,7 +40,7 @@ function regionLabel(region?: string | null): string {
 
   // ถ้าเป็นภาษาไทยอยู่แล้ว
   if (/[ก-๙]/.test(raw)) {
-    if (raw.includes("กรุงเทพ")) return "กรุงเทพและปริมณฑล";
+    if (raw.includes("กรุงเทพ") || raw.includes("ปริมณฑล")) return "กรุงเทพและปริมณฑล";
     if (raw.startsWith("ภาค")) return raw;
     return `ภาค${raw}`;
   }
@@ -52,7 +60,6 @@ function regionLabel(region?: string | null): string {
 }
 
 function extractRegionFromResp(json: any): string {
-  // ✅ ไล่ดู key ที่มักจะเจอจาก API หลายแบบ
   return (
     json?.regionName ??
     json?.region ??
@@ -61,49 +68,129 @@ function extractRegionFromResp(json: any): string {
     json?.data?.region ??
     json?.data?.mainRegion ??
     json?.topDeaths?.[0]?.region ??
+    json?.topPatients?.[0]?.region ??
     ""
   );
+}
+
+/**
+ * ✅ รองรับ response ได้หลายแบบ:
+ * A) { topDeaths: [...] , region: ... }
+ * B) { topPatients: [...] , region: ... }  (fallback)
+ * C) [ { region, patients, deaths }, ... ]  (legacy)
+ */
+function normalizeRows(json: any): { rows: DataRow[]; regionRaw: string } {
+  // legacy: array
+  if (Array.isArray(json)) {
+    const rows = json
+      .map((r: any) => ({
+        province: String(r?.province ?? "").trim(),
+        patients: toNumber(r?.patients),
+        deaths: toNumber(r?.deaths),
+        region: r?.region ? String(r.region) : undefined,
+      }))
+      .filter((r: DataRow) => r.province);
+
+    const regionRaw =
+      String(rows?.[0]?.region ?? "").trim() ||
+      ""; // legacy มักใส่ region ใน row
+
+    return { rows, regionRaw };
+  }
+
+  const regionRaw = String(extractRegionFromResp(json) ?? "").trim();
+
+  const topDeathsArr = Array.isArray(json?.topDeaths) ? json.topDeaths : null;
+  if (topDeathsArr) {
+    const rows = topDeathsArr
+      .map((r: any) => ({
+        province: String(r?.province ?? "").trim(),
+        patients: toNumber(r?.patients),
+        deaths: toNumber(r?.deaths),
+        region: r?.region ? String(r.region) : undefined,
+      }))
+      .filter((r: DataRow) => r.province);
+
+    const region2 = regionRaw || String(rows?.[0]?.region ?? "").trim() || "";
+    return { rows, regionRaw: region2 };
+  }
+
+  // fallback: ถ้ามีแค่ topPatients ให้แสดง deaths = 0 (กันกราฟพัง)
+  const topPatientsArr = Array.isArray(json?.topPatients) ? json.topPatients : null;
+  if (topPatientsArr) {
+    const rows = topPatientsArr
+      .map((r: any) => ({
+        province: String(r?.province ?? "").trim(),
+        patients: toNumber(r?.patients),
+        deaths: toNumber(r?.deaths), // ถ้าไม่มีจะเป็น 0
+        region: r?.region ? String(r.region) : undefined,
+      }))
+      .filter((r: DataRow) => r.province);
+
+    const region2 = regionRaw || String(rows?.[0]?.region ?? "").trim() || "";
+    return { rows, regionRaw: region2 };
+  }
+
+  return { rows: [], regionRaw };
 }
 
 export default function GraphDeathsByRegion() {
   const { province, start_date, end_date } = useDashboardStore();
   const [data, setData] = useState<DataRow[]>([]);
-  const [regionRaw, setRegionRaw] = useState<string>(""); // ✅ เก็บภูมิภาคแยก
+  const [regionRaw, setRegionRaw] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     (async () => {
       try {
+        // ถ้ายังไม่เลือกจังหวัด ไม่ต้องยิง
+        if (!province) {
+          setData([]);
+          setRegionRaw("");
+          setLoading(false);
+          return;
+        }
+
         setLoading(true);
 
-        const url = `/api/dashBoard/region-by-province?start_date=${start_date}&end_date=${end_date}&province=${province}`;
-        const res = await fetch(url);
+        const url =
+          `/api/dashBoard/region-by-province?start_date=${encodeURIComponent(start_date || "")}` +
+          `&end_date=${encodeURIComponent(end_date || "")}` +
+          `&province=${encodeURIComponent(province || "")}`;
+
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
 
         const json = text ? JSON.parse(text) : {};
-        const topDeaths: DataRow[] = Array.isArray(json.topDeaths) ? json.topDeaths : [];
-
         if (cancelled) return;
 
-        setData(topDeaths);
+        const { rows, regionRaw: regFromApi } = normalizeRows(json);
 
-        // ✅ 1) เอาภูมิภาคจาก response ระดับบนก่อน
-        let reg = extractRegionFromResp(json);
+        setData(rows);
+        let reg = regFromApi;
 
-        // ✅ 2) fallback: บาง API ใส่ region ไว้ใน row
-        if (!reg && topDeaths?.[0]?.region) reg = String(topDeaths[0].region);
-
-        // ✅ 3) fallback สุดท้าย: lookup จากไฟล์จังหวัดใน public (ถ้ามี)
+        // fallback สุดท้าย: lookup จากไฟล์จังหวัดใน public (ถ้ามี)
         if (!reg && province) {
           try {
-            const mapRes = await fetch("/data/Thailand-ProvinceName.json", { cache: "force-cache" });
+            const mapRes = await fetch("/data/Thailand-ProvinceName.json", {
+              cache: "force-cache",
+            });
             const mapText = await mapRes.text();
             const arr = mapText ? JSON.parse(mapText) : [];
             const found = Array.isArray(arr)
-              ? arr.find((p: any) => String(p?.ProvinceNameThai ?? "").trim() === String(province).trim())
+              ? arr.find(
+                  (p: any) =>
+                    String(p?.ProvinceNameThai ?? "").trim() === String(province).trim()
+                )
               : null;
 
             reg =
@@ -119,6 +206,7 @@ export default function GraphDeathsByRegion() {
 
         setRegionRaw(reg || "");
       } catch (err) {
+        if ((err as any)?.name === "AbortError") return;
         console.error("❌ Fetch error (deaths by region):", err);
         if (!cancelled) {
           setData([]);
@@ -131,13 +219,14 @@ export default function GraphDeathsByRegion() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [province, start_date, end_date]);
 
-  const xMax = useMemo(
-    () => niceMax(Math.max(0, ...data.map((d) => Number(d.deaths ?? 0)))),
-    [data]
-  );
+  const xMax = useMemo(() => {
+    const maxDeaths = Math.max(0, ...data.map((d) => toNumber(d.deaths)));
+    return niceMax(maxDeaths);
+  }, [data]);
 
   const yWidth = useMemo(() => {
     const longest = data.reduce((m, d) => Math.max(m, (d.province ?? "").length), 0);
@@ -148,12 +237,18 @@ export default function GraphDeathsByRegion() {
 
   return (
     <div className="rounded bg-white p-4 shadow">
-      <h4 className="mb-2 font-bold">
-        ผู้เสียชีวิตสะสมใน {regionText || "—"}
-      </h4>
+      <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมใน {regionText || "—"}</h4>
 
       {loading ? (
         <p>⏳ กำลังโหลด...</p>
+      ) : !province ? (
+        <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
+          กรุณาเลือกจังหวัดก่อน เพื่อแสดงผู้เสียชีวิตสะสมในภูมิภาค
+        </div>
+      ) : data.length === 0 ? (
+        <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
+          ไม่พบข้อมูลในช่วงวันที่ที่เลือก
+        </div>
       ) : (
         <ResponsiveContainer width="100%" height={400}>
           <BarChart
@@ -180,10 +275,7 @@ export default function GraphDeathsByRegion() {
 
             <Tooltip
               content={
-                <ProvinceCountTooltip
-                  seriesName="ผู้เสียชีวิตสะสม"
-                  labelKey="province"
-                />
+                <ProvinceCountTooltip seriesName="ผู้เสียชีวิตสะสม" labelKey="province" />
               }
             />
 

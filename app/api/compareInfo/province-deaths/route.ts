@@ -1,17 +1,33 @@
-// app/api/compareInfo/province-deaths/route.ts
+// D:\HealtRiskHub\app\api\compareInfo\province-deaths\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type ProvinceDeaths = { province: string; deaths: number };
 type APIResp = { ok: boolean; main?: ProvinceDeaths; compare?: ProvinceDeaths; error?: string };
 
+// d01_influenza
+const D01_TABLE = (process.env.DB_D01_TABLE || "d01_influenza").trim();
+const D01_PROVINCE_COL = (process.env.DB_D01_PROVINCE_COL || "province").trim();
+const D01_DEATH_COL = (process.env.DB_D01_DEATH_COL || "death_date_parsed").trim();
+
 function parseDateOrThrow(v: string, name: string): Date {
-  const d = new Date(v);
+  const d = new Date((v ?? "").trim());
   if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
   return d;
+}
+
+function assertIdent(name: string, label: string) {
+  const v = (name ?? "").trim();
+  if (!/^[a-zA-Z0-9_]+$/.test(v)) throw new Error(`Invalid ${label}: ${name}`);
+  return v;
+}
+function refCol(alias: string, col: string) {
+  return sql.ref(`${assertIdent(alias, "alias")}.${assertIdent(col, "column")}`);
 }
 
 async function queryProvinceDeaths(opts: {
@@ -22,27 +38,30 @@ async function queryProvinceDeaths(opts: {
   const start = parseDateOrThrow(opts.start_date, "start_date");
   const end = parseDateOrThrow(opts.end_date, "end_date");
 
-  const row = await db
-    .selectFrom("influenza_cases as ic")
-    .innerJoin("provinces as p", "p.province_id", "ic.province_id")
+  assertIdent(D01_TABLE, "d01 table");
+  assertIdent(D01_PROVINCE_COL, "d01 province col");
+  assertIdent(D01_DEATH_COL, "d01 death col");
+
+  const row = await (db as any)
+    .selectFrom(sql`${sql.ref(D01_TABLE)}`.as("ic"))
     .select(sql<number>`COUNT(*)`.as("deaths"))
-    .where("p.province_name_th", "=", opts.provinceNameTh)
-    .where("ic.death_date_parsed", "is not", null)
-    .where("ic.death_date_parsed", ">=", start)
-    .where("ic.death_date_parsed", "<=", end)
+    .where(sql`${refCol("ic", D01_PROVINCE_COL)} = ${opts.provinceNameTh}`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} IS NOT NULL`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} >= ${start}`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} <= ${end}`)
     .executeTakeFirst();
 
-  return { province: opts.provinceNameTh, deaths: Number(row?.deaths ?? 0) };
+  return { province: opts.provinceNameTh, deaths: Number((row as any)?.deaths ?? 0) };
 }
 
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
 
-    const start_date = sp.get("start_date") ?? "2024-01-01";
-    const end_date = sp.get("end_date") ?? "2024-12-31";
-    const mainProvince = sp.get("mainProvince") ?? "";
-    const compareProvince = sp.get("compareProvince") ?? "";
+    const start_date = (sp.get("start_date") ?? "2024-01-01").trim();
+    const end_date = (sp.get("end_date") ?? "2024-12-31").trim();
+    const mainProvince = (sp.get("mainProvince") ?? "").trim();
+    const compareProvince = (sp.get("compareProvince") ?? "").trim();
 
     if (!mainProvince && !compareProvince) {
       return NextResponse.json<APIResp>(
@@ -58,7 +77,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json<APIResp>(
       { ok: true, ...(main ? { main } : {}), ...(compare ? { compare } : {}) },
-      { status: 200, headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } }
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
   } catch (e: any) {
     console.error("❌ API ERROR (compareInfo/province-deaths):", e);

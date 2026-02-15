@@ -348,16 +348,16 @@ export default function CompareProvincePatientsChart({
     const a = mainProvince || "—";
     const b = compareProvince || "—";
 
-    if (!hasBoth) return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} vs ${b}`;
+    if (!hasBoth) return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
 
-    // ถ้าได้ชื่อภูมิภาคแล้ว ค่อยแสดง
-    if (mainRegionLabel || compareRegionLabel) {
-      const left = mainRegionLabel ? `${a} (${mainRegionLabel})` : a;
-      const right = compareRegionLabel ? `${b} (${compareRegionLabel})` : b;
-      return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${left} vs ${right}`;
-    }
+    // // ถ้าได้ชื่อภูมิภาคแล้ว ค่อยแสดง
+    // if (mainRegionLabel || compareRegionLabel) {
+    //   const left = mainRegionLabel ? `${a} ${mainRegionLabel}` : a;
+    //   const right = compareRegionLabel ? `${b} ${compareRegionLabel}` : b;
+    //   return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${left} และ ${right}`;
+    // }
 
-    return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} vs ${b}`;
+    return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
   }, [hasBoth, mainProvince, compareProvince, mainRegionLabel, compareRegionLabel]);
 
   return (

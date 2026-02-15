@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -12,27 +12,46 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-async function resolveProvince(provinceParam: string) {
-  const p = provinceParam.trim();
+type RefProvince = {
+  province_no: number;
+  province_name_th: string;
+  region_id: number | null;
+  region_moph: string;
+};
 
-  // ส่งเป็นเลข -> province_id
+async function resolveProvince(provinceParam: string): Promise<RefProvince | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  // เลข -> province_no
   if (/^\d+$/.test(p)) {
     const row = await db
-      .selectFrom("provinces")
-      .select(["province_id", "province_name_th", "region_id"])
-      .where("province_id", "=", Number(p))
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select([
+        sql<number>`p.province_no`.as("province_no"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
+        sql<number | null>`p.region_id`.as("region_id"),
+        sql<string>`p.region_moph`.as("region_moph"),
+      ])
+      .where(sql<number>`p.province_no`, "=", Number(p))
       .executeTakeFirst();
-    return row ?? null;
+
+    return (row ?? null) as any;
   }
 
-  // ส่งเป็นชื่อไทย -> map เป็น province_id
+  // ชื่อ -> province_name_th
   const row = await db
-    .selectFrom("provinces")
-    .select(["province_id", "province_name_th", "region_id"])
-    .where("province_name_th", "=", p)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select([
+      sql<number>`p.province_no`.as("province_no"),
+      sql<string>`p.province_name_th`.as("province_name_th"),
+      sql<number | null>`p.region_id`.as("region_id"),
+      sql<string>`p.region_moph`.as("region_moph"),
+    ])
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return row ?? null;
+  return (row ?? null) as any;
 }
 
 export async function GET(request: NextRequest) {
@@ -48,45 +67,37 @@ export async function GET(request: NextRequest) {
 
     const prov = await resolveProvince(province);
     if (!prov) {
-      return NextResponse.json(
-        { error: `ไม่พบจังหวัด: ${province}` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
     }
 
-    // 🧮 ผู้ป่วยในช่วงวันที่
-    const patientsRow = await db
-      .selectFrom("influenza_cases")
+    const patientsRow = await (db as any)
+      .selectFrom("d01_influenza as ic")
       .select([sql<number>`COUNT(*)`.as("patients")])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", prov.province_name_th)
       .executeTakeFirst();
 
-    // ☠️ ผู้เสียชีวิตในช่วงวันที่
-    const deathsRow = await db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("deaths")])
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate)
-      .where("province_id", "=", prov.province_id)
+    const deathsRow = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("deaths")])
+      .where("ic.death_date_parsed", "is not", null)
+      .where("ic.death_date_parsed", ">=", startDate)
+      .where("ic.death_date_parsed", "<=", endDate)
+      .where("ic.province", "=", prov.province_name_th)
       .executeTakeFirst();
 
     return NextResponse.json(
       {
-        province: prov.province_name_th, // คืนชื่อจังหวัดมาตรฐาน
+        province: prov.province_name_th,
         regionId: prov.region_id ?? null,
-        patients: Number(patientsRow?.patients ?? 0),
-        deaths: Number(deathsRow?.deaths ?? 0),
+        patients: Number((patientsRow as any)?.patients ?? 0),
+        deaths: Number((deathsRow as any)?.deaths ?? 0),
       },
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("❌ API ERROR (province-summary):", err);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

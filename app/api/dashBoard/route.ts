@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import db from "@/lib/kysely3/db";
+import db from "@/lib/kysely4/db";
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -17,20 +17,27 @@ function daysInclusive(start: Date, end: Date) {
   return Math.max(1, d);
 }
 
-async function resolveProvinceId(provinceParam: string) {
-  const p = provinceParam.trim();
-
+async function resolveProvinceNameOrNull(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
   if (!p) return null;
 
-  if (/^\d+$/.test(p)) return Number(p);
+  if (/^\d+$/.test(p)) {
+    const found = await (db as any)
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
 
-  const found = await db
-    .selectFrom("provinces")
-    .select("province_id")
-    .where("province_name_th", "=", p)
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await (db as any)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
     .executeTakeFirst();
 
-  return found?.province_id ?? null;
+  return (found?.province_name_th ?? "").trim() || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -40,52 +47,47 @@ export async function GET(request: NextRequest) {
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
     const provinceParam = (params.get("province") || "").trim();
 
-    const provinceId = provinceParam ? await resolveProvinceId(provinceParam) : null;
+    const provinceName = provinceParam ? await resolveProvinceNameOrNull(provinceParam) : null;
 
     // 🩺 ผู้ป่วยช่วงวันที่
-    let patientQuery = db
-      .selectFrom("influenza_cases")
-      .select([
-        sql<number>`COUNT(*)`.as("total_patients"),
-      ])
-      .where("onset_date_parsed", ">=", startDate)
-      .where("onset_date_parsed", "<=", endDate);
+    let patientQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(*)`.as("total_patients")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate);
 
-    if (provinceId) patientQuery = patientQuery.where("province_id", "=", provinceId);
+    if (provinceName) patientQuery = patientQuery.where("ic.province", "=", provinceName);
     const patientStats = await patientQuery.executeTakeFirst();
 
-    const totalPatients = Number(patientStats?.total_patients ?? 0);
+    const totalPatients = Number((patientStats as any)?.total_patients ?? 0);
     const avgPatientsPerDay = Math.round(totalPatients / daysInclusive(startDate, endDate));
 
-    // 👥 ผู้ป่วยสะสมทั้งหมด (ไม่จำกัดช่วงเวลา)
-    let cumPatientQuery = db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(*)`.as("cumulative_patients")]);
-
-    if (provinceId) cumPatientQuery = cumPatientQuery.where("province_id", "=", provinceId);
+    // 👥 ผู้ป่วยสะสมทั้งหมด
+    let cumPatientQuery = (db as any).selectFrom("d01_influenza as ic").select([sql<number>`COUNT(*)`.as("cumulative_patients")]);
+    if (provinceName) cumPatientQuery = cumPatientQuery.where("ic.province", "=", provinceName);
     const cumulativePatientsRow = await cumPatientQuery.executeTakeFirst();
 
     // ☠️ ผู้เสียชีวิตช่วงวันที่
-    let deathQuery = db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("total_deaths")])
-      .where("death_date_parsed", "is not", null)
-      .where("death_date_parsed", ">=", startDate)
-      .where("death_date_parsed", "<=", endDate);
+    let deathQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("total_deaths")])
+      .where("ic.death_date_parsed", "is not", null)
+      .where("ic.death_date_parsed", ">=", startDate)
+      .where("ic.death_date_parsed", "<=", endDate);
 
-    if (provinceId) deathQuery = deathQuery.where("province_id", "=", provinceId);
+    if (provinceName) deathQuery = deathQuery.where("ic.province", "=", provinceName);
     const deathStats = await deathQuery.executeTakeFirst();
 
-    const totalDeaths = Number(deathStats?.total_deaths ?? 0);
+    const totalDeaths = Number((deathStats as any)?.total_deaths ?? 0);
     const avgDeathsPerDay = Math.round(totalDeaths / daysInclusive(startDate, endDate));
 
-    // ☠️ ผู้เสียชีวิตสะสม (ไม่จำกัดช่วงเวลา)
-    let cumDeathQuery = db
-      .selectFrom("influenza_cases")
-      .select([sql<number>`COUNT(death_date_parsed)`.as("cumulative_deaths")])
-      .where("death_date_parsed", "is not", null);
+    // ☠️ ผู้เสียชีวิตสะสม
+    let cumDeathQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("cumulative_deaths")])
+      .where("ic.death_date_parsed", "is not", null);
 
-    if (provinceId) cumDeathQuery = cumDeathQuery.where("province_id", "=", provinceId);
+    if (provinceName) cumDeathQuery = cumDeathQuery.where("ic.province", "=", provinceName);
     const cumulativeDeathsRow = await cumDeathQuery.executeTakeFirst();
 
     const data = {
@@ -93,19 +95,16 @@ export async function GET(request: NextRequest) {
 
       totalPatients,
       avgPatientsPerDay,
-      cumulativePatients: Number(cumulativePatientsRow?.cumulative_patients ?? 0),
+      cumulativePatients: Number((cumulativePatientsRow as any)?.cumulative_patients ?? 0),
 
       totalDeaths,
       avgDeathsPerDay,
-      cumulativeDeaths: Number(cumulativeDeathsRow?.cumulative_deaths ?? 0),
+      cumulativeDeaths: Number((cumulativeDeathsRow as any)?.cumulative_deaths ?? 0),
     };
 
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
     console.error("❌ API ERROR (/api/dashBoard):", error);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

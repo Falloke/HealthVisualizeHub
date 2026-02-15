@@ -501,7 +501,7 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div ref={refA}>
           <h5 className="mb-2 font-semibold">
-            ภูมิภาคของ {provinceA ?? "-"} {regionAName ? `(${regionAName})` : ""}
+            ภูมิภาคของ {provinceA ?? "-"} {regionAName ? `${regionAName}` : ""}
           </h5>
 
           <ResponsiveContainer width="100%" height={360}>
