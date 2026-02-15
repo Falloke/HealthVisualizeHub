@@ -1,6 +1,10 @@
 // app/api/dashBoard/route.ts
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -46,6 +50,7 @@ function daysInclusiveYMD(startYMD: string, endYMD: string) {
   return Math.max(1, d);
 }
 
+<<<<<<< HEAD
 function isSafeIdent(s: string) {
   return /^[a-z0-9_]+$/i.test(s);
 }
@@ -82,14 +87,41 @@ function zeroPayload(province: string | null, disease: string | null) {
     avgDeathsPerDay: 0,
     cumulativeDeaths: 0,
   };
+=======
+async function resolveProvinceNameOrNull(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) {
+    const found = await (db as any)
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await (db as any)
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (found?.province_name_th ?? "").trim() || null;
+>>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
+<<<<<<< HEAD
     const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
     const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
+=======
+    const provinceName = provinceParam ? await resolveProvinceNameOrNull(provinceParam) : null;
+>>>>>>> feature/Method_F&Method_G
 
     const startDate = ymdToUTCStart(startYMD);
     const endDate = ymdToUTCEnd(endYMD);
@@ -117,6 +149,7 @@ export async function GET(request: NextRequest) {
 
     // -------------------------
     // 🩺 ผู้ป่วยช่วงวันที่
+<<<<<<< HEAD
     // -------------------------
     let patientQuery = (db as any)
       .withSchema(fact.schema)
@@ -130,10 +163,20 @@ export async function GET(request: NextRequest) {
       patientQuery = patientQuery.where("ic.province", "=", province);
     }
 
+=======
+    let patientQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(*)`.as("total_patients")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate);
+
+    if (provinceName) patientQuery = patientQuery.where("ic.province", "=", provinceName);
+>>>>>>> feature/Method_F&Method_G
     const patientStats = await patientQuery.executeTakeFirst();
     const totalPatients = Number((patientStats as any)?.total_patients ?? 0);
     const avgPatientsPerDay = Math.round(totalPatients / days);
 
+<<<<<<< HEAD
     // -------------------------
     // 👥 ผู้ป่วยสะสมทั้งหมด (ไม่จำกัดช่วงเวลา)
     // -------------------------
@@ -221,5 +264,54 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+=======
+    const totalPatients = Number((patientStats as any)?.total_patients ?? 0);
+    const avgPatientsPerDay = Math.round(totalPatients / daysInclusive(startDate, endDate));
+
+    // 👥 ผู้ป่วยสะสมทั้งหมด
+    let cumPatientQuery = (db as any).selectFrom("d01_influenza as ic").select([sql<number>`COUNT(*)`.as("cumulative_patients")]);
+    if (provinceName) cumPatientQuery = cumPatientQuery.where("ic.province", "=", provinceName);
+    const cumulativePatientsRow = await cumPatientQuery.executeTakeFirst();
+
+    // ☠️ ผู้เสียชีวิตช่วงวันที่
+    let deathQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("total_deaths")])
+      .where("ic.death_date_parsed", "is not", null)
+      .where("ic.death_date_parsed", ">=", startDate)
+      .where("ic.death_date_parsed", "<=", endDate);
+
+    if (provinceName) deathQuery = deathQuery.where("ic.province", "=", provinceName);
+    const deathStats = await deathQuery.executeTakeFirst();
+
+    const totalDeaths = Number((deathStats as any)?.total_deaths ?? 0);
+    const avgDeathsPerDay = Math.round(totalDeaths / daysInclusive(startDate, endDate));
+
+    // ☠️ ผู้เสียชีวิตสะสม
+    let cumDeathQuery = (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("cumulative_deaths")])
+      .where("ic.death_date_parsed", "is not", null);
+
+    if (provinceName) cumDeathQuery = cumDeathQuery.where("ic.province", "=", provinceName);
+    const cumulativeDeathsRow = await cumDeathQuery.executeTakeFirst();
+
+    const data = {
+      province: provinceParam || null,
+
+      totalPatients,
+      avgPatientsPerDay,
+      cumulativePatients: Number((cumulativePatientsRow as any)?.cumulative_patients ?? 0),
+
+      totalDeaths,
+      avgDeathsPerDay,
+      cumulativeDeaths: Number((cumulativeDeathsRow as any)?.cumulative_deaths ?? 0),
+    };
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (error) {
+    console.error("❌ API ERROR (/api/dashBoard):", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+>>>>>>> feature/Method_F&Method_G
   }
 }

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -12,6 +16,7 @@ function parseYMDOrFallback(input: string | null, fallback: string) {
   return raw;
 }
 
+<<<<<<< HEAD
 function ymdToUTCStart(ymd: string) {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
@@ -51,6 +56,29 @@ async function resolveFactTable(
   if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
 
   return { schema, table };
+=======
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await db
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (found?.province_name_th ?? "").trim() || null;
+>>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
@@ -74,6 +102,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
+<<<<<<< HEAD
     // ✅ ไม่มีโรค -> คืน []
     if (!diseaseCode) {
       return NextResponse.json([], {
@@ -108,10 +137,29 @@ export async function GET(request: NextRequest) {
       .groupBy(monthExpr)
       .groupBy(sql`ic.gender`)
       .orderBy(monthExpr)
+=======
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    }
+
+    const monthExpr = sql<string>`TO_CHAR(ic.onset_date_parsed, 'YYYY-MM')`;
+
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([monthExpr.as("month"), "ic.gender as gender", sql<number>`COUNT(*)`.as("count")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
+      .groupBy(monthExpr)
+      .groupBy("ic.gender")
+      .orderBy("month")
+>>>>>>> feature/Method_F&Method_G
       .execute();
 
     const monthlyData: Record<string, { male: number; female: number }> = {};
 
+<<<<<<< HEAD
     for (const r of rows as any[]) {
       const month = String(r.month);
       if (!monthlyData[month]) monthlyData[month] = { male: 0, female: 0 };
@@ -122,6 +170,15 @@ export async function GET(request: NextRequest) {
       } else if (g === "f" || g === "female" || g === "หญิง") {
         monthlyData[month].female += Number(r.count || 0);
       }
+=======
+    for (const r of rows) {
+      const month = String((r as any).month);
+      if (!monthlyData[month]) monthlyData[month] = { male: 0, female: 0 };
+
+      const g = String((r as any).gender ?? "").trim();
+      if (g === "M" || g === "ชาย") monthlyData[month].male += Number((r as any).count ?? 0);
+      else if (g === "F" || g === "หญิง") monthlyData[month].female += Number((r as any).count ?? 0);
+>>>>>>> feature/Method_F&Method_G
     }
 
     const result = Object.keys(monthlyData)
@@ -138,9 +195,13 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error("❌ API ERROR (gender-trend):", err);
+<<<<<<< HEAD
     return NextResponse.json([], {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+=======
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+>>>>>>> feature/Method_F&Method_G
   }
 }

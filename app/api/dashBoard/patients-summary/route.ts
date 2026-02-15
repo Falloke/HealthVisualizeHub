@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -12,11 +16,35 @@ function parseYMDOrFallback(input: string | null, fallback: string) {
   return raw;
 }
 
+<<<<<<< HEAD
 function ymdToUTCStart(ymd: string) {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
 function ymdToUTCEnd(ymd: string) {
   return new Date(`${ymd}T23:59:59.999Z`);
+=======
+async function resolveProvinceNameOrNull(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await db
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (found?.province_name_th ?? "").trim() || null;
+>>>>>>> feature/Method_F&Method_G
 }
 
 function pickDisease(params: URLSearchParams) {
@@ -67,6 +95,7 @@ export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
 
+<<<<<<< HEAD
     const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
     const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
 
@@ -121,19 +150,46 @@ export async function GET(request: NextRequest) {
       .select([sql<number>`COUNT(*)::int`.as("cumulative_patients")])
       .where("ic.province", "=", provinceName)
       .where("ic.disease_code", "=", diseaseCode)
+=======
+    if (!province || !province.trim()) {
+      return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
+    }
+
+    const provinceName = await resolveProvinceNameOrNull(province);
+    if (!provinceName) {
+      return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
+    }
+
+    const inRange = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select((eb: any) => [eb.fn.countAll().as("total_patients")])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
+      .executeTakeFirst();
+
+    const totalPatients = Number((inRange as any)?.total_patients ?? 0);
+    const avgPatientsPerDay = Math.round(totalPatients / daysInclusive(startDate, endDate));
+
+    const cum = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select((eb: any) => [eb.fn.countAll().as("cumulative_patients")])
+      .where("ic.province", "=", provinceName)
+>>>>>>> feature/Method_F&Method_G
       .executeTakeFirst();
 
     const cumulativePatients = Number((cum as any)?.cumulative_patients ?? 0);
 
-    return NextResponse.json(
-      { totalPatients, avgPatientsPerDay, cumulativePatients },
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ totalPatients, avgPatientsPerDay, cumulativePatients }, { status: 200 });
   } catch (error) {
     console.error("❌ API ERROR (patients-summary):", error);
+<<<<<<< HEAD
     return NextResponse.json(
       { totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 },
       { status: 200 }
     );
+=======
+    return NextResponse.json({ totalPatients: 0, avgPatientsPerDay: 0, cumulativePatients: 0 }, { status: 200 });
+>>>>>>> feature/Method_F&Method_G
   }
 }

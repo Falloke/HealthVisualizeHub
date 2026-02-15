@@ -234,8 +234,23 @@ export default function CompareProvincePatientsChart({ prefetched, parentLoading
   const headerLine = useMemo(() => {
     const a = mainProvince || "—";
     const b = compareProvince || "—";
+<<<<<<< HEAD
     return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
   }, [mainProvince, compareProvince]);
+=======
+
+    if (!hasBoth) return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
+
+    // // ถ้าได้ชื่อภูมิภาคแล้ว ค่อยแสดง
+    // if (mainRegionLabel || compareRegionLabel) {
+    //   const left = mainRegionLabel ? `${a} ${mainRegionLabel}` : a;
+    //   const right = compareRegionLabel ? `${b} ${compareRegionLabel}` : b;
+    //   return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${left} และ ${right}`;
+    // }
+
+    return `เปรียบเทียบผู้ป่วยสะสมจังหวัด ${a} และ ${b}`;
+  }, [hasBoth, mainProvince, compareProvince, mainRegionLabel, compareRegionLabel]);
+>>>>>>> feature/Method_F&Method_G
 
   return (
     <div className="flex flex-col rounded bg-white p-4 shadow" style={{ height: CARD_H }}>

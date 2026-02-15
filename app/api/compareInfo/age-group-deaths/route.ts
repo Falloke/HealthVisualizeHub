@@ -1,13 +1,22 @@
+<<<<<<< HEAD
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "kysely";
 import db from "@/lib/kysely/db";
+=======
+// D:\HealtRiskHub\app\api\compareInfo\age-group-deaths\route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { sql } from "kysely";
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type RowOut = { ageRange: string; mainDeaths: number; compareDeaths: number };
 type AgeRow = { ageRange: string; deaths: number };
 
+<<<<<<< HEAD
 type RowMerged = {
   ageRange: string;
   mainDeaths: number;
@@ -48,52 +57,67 @@ function dateExpr(tableAlias: string, col: string, cast: string) {
   const ref = sql.ref(`${tableAlias}.${col}`);
   if (!cast) return ref;
   return sql`${ref}::${sql.raw(cast)}`;
+=======
+const AGE_ORDER = ["0-4", "5-9", "10-14", "15-19", "20-24", "25-44", "45-59", "60+"] as const;
+
+// ref.provinces_moph
+const REF_SCHEMA = (process.env.DB_REF_SCHEMA || "ref").trim();
+const REF_PROVINCES_TABLE = (process.env.DB_REF_PROVINCES_TABLE || "provinces_moph").trim();
+const REF_PROVINCE_ID_COL = (process.env.DB_REF_PROVINCE_ID_COL || "province_no").trim();
+const REF_PROVINCE_NAME_COL = (process.env.DB_REF_PROVINCE_NAME_COL || "province_name_th").trim();
+
+// d01_influenza
+const D01_TABLE = (process.env.DB_D01_TABLE || "d01_influenza").trim();
+const D01_PROVINCE_COL = (process.env.DB_D01_PROVINCE_COL || "province").trim();
+const D01_DEATH_COL = (process.env.DB_D01_DEATH_COL || "death_date_parsed").trim();
+const D01_AGE_COL = (process.env.DB_D01_AGE_COL || "age_y").trim();
+
+function parseDateOrThrow(v: string, name: string): Date {
+  const d = new Date((v ?? "").trim());
+  if (!Number.isFinite(d.getTime())) throw new Error(`Invalid ${name}: ${v}`);
+  return d;
+>>>>>>> feature/Method_F&Method_G
 }
 
-function normalizeAgeRange(v: unknown): string {
-  return String(v ?? "").trim();
+function assertIdent(name: string, label: string) {
+  const v = (name ?? "").trim();
+  if (!/^[a-zA-Z0-9_]+$/.test(v)) throw new Error(`Invalid ${label}: ${name}`);
+  return v;
 }
 
-function orderIndex(range: string): number {
-  const i = (AGE_ORDER as unknown as string[]).indexOf(range);
-  return i === -1 ? 999 : i;
+function refCol(alias: string, col: string) {
+  return sql.ref(`${assertIdent(alias, "alias")}.${assertIdent(col, "column")}`);
 }
 
-function mergeAgeData(main: AgeRow[], compare: AgeRow[]): RowMerged[] {
-  const mainMap = new Map<string, number>();
-  const compareMap = new Map<string, number>();
-  const extra = new Set<string>();
+/** ✅ resolve จังหวัดเหมือน dashboard: ref.provinces_moph (province_no หรือ province_name_th) */
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
 
-  for (const r of main ?? []) {
-    const k = normalizeAgeRange(r.ageRange);
-    const v = Number(r.deaths ?? 0);
-    mainMap.set(k, Number.isFinite(v) ? v : 0);
-    if (!AGE_SET.has(k)) extra.add(k);
+  assertIdent(REF_SCHEMA, "ref schema");
+  assertIdent(REF_PROVINCES_TABLE, "ref table");
+  assertIdent(REF_PROVINCE_ID_COL, "ref province id col");
+  assertIdent(REF_PROVINCE_NAME_COL, "ref province name col");
+
+  const refTable = sql`${sql.ref(`${REF_SCHEMA}.${REF_PROVINCES_TABLE}`)}`;
+
+  if (/^\d+$/.test(p)) {
+    const found = await (db as any)
+      .selectFrom(refTable.as("p"))
+      .select(sql<string>`${refCol("p", REF_PROVINCE_NAME_COL)}`.as("province_name_th"))
+      .where(sql`${refCol("p", REF_PROVINCE_ID_COL)} = ${Number(p)}`)
+      .executeTakeFirst();
+
+    return (String((found as any)?.province_name_th ?? "").trim() || null);
   }
 
-  for (const r of compare ?? []) {
-    const k = normalizeAgeRange(r.ageRange);
-    const v = Number(r.deaths ?? 0);
-    compareMap.set(k, Number.isFinite(v) ? v : 0);
-    if (!AGE_SET.has(k)) extra.add(k);
-  }
+  const found = await (db as any)
+    .selectFrom(refTable.as("p"))
+    .select(sql<string>`${refCol("p", REF_PROVINCE_NAME_COL)}`.as("province_name_th"))
+    .where(sql`${refCol("p", REF_PROVINCE_NAME_COL)} = ${p}`)
+    .executeTakeFirst();
 
-  const base: RowMerged[] = (AGE_ORDER as unknown as string[]).map((k) => ({
-    ageRange: k,
-    mainDeaths: mainMap.get(k) ?? 0,
-    compareDeaths: compareMap.get(k) ?? 0,
-  }));
-
-  const extras = Array.from(extra.values())
-    .filter((k) => !AGE_SET.has(k))
-    .sort((a, b) => orderIndex(a) - orderIndex(b) || a.localeCompare(b))
-    .map((k) => ({
-      ageRange: k,
-      mainDeaths: mainMap.get(k) ?? 0,
-      compareDeaths: compareMap.get(k) ?? 0,
-    }));
-
-  return base.concat(extras);
+  return (String((found as any)?.province_name_th ?? "").trim() || null);
 }
 
 /** ✅ รองรับ D01 / 01 / 1 / 001 / d01 */
@@ -212,20 +236,28 @@ async function queryAgeDeaths(args: {
   const diseaseIn = diseaseCandidates(resolved);
   if (diseaseIn.length === 0) return [];
 
+  assertIdent(D01_TABLE, "d01 table");
+  assertIdent(D01_PROVINCE_COL, "d01 province col");
+  assertIdent(D01_DEATH_COL, "d01 death col");
+  assertIdent(D01_AGE_COL, "d01 age col");
+
+  const ageCol = refCol("ic", D01_AGE_COL);
+
   const ageCase = sql<string>`
     CASE
-      WHEN ic.age_y BETWEEN 0 AND 4 THEN '0-4'
-      WHEN ic.age_y BETWEEN 5 AND 9 THEN '5-9'
-      WHEN ic.age_y BETWEEN 10 AND 14 THEN '10-14'
-      WHEN ic.age_y BETWEEN 15 AND 19 THEN '15-19'
-      WHEN ic.age_y BETWEEN 20 AND 24 THEN '20-24'
-      WHEN ic.age_y BETWEEN 25 AND 44 THEN '25-44'
-      WHEN ic.age_y BETWEEN 45 AND 59 THEN '45-59'
-      WHEN ic.age_y >= 60 THEN '60+'
+      WHEN ${ageCol} BETWEEN 0 AND 4 THEN '0-4'
+      WHEN ${ageCol} BETWEEN 5 AND 9 THEN '5-9'
+      WHEN ${ageCol} BETWEEN 10 AND 14 THEN '10-14'
+      WHEN ${ageCol} BETWEEN 15 AND 19 THEN '15-19'
+      WHEN ${ageCol} BETWEEN 20 AND 24 THEN '20-24'
+      WHEN ${ageCol} BETWEEN 25 AND 44 THEN '25-44'
+      WHEN ${ageCol} BETWEEN 45 AND 59 THEN '45-59'
+      WHEN ${ageCol} >= 60 THEN '60+'
       ELSE NULL
     END
   `.as("ageRange");
 
+<<<<<<< HEAD
   const deathDate = dateExpr("ic", DEATH_DATE_COL, DEATH_DATE_CAST);
 
   // ถ้า cast เป็น date จะ compare ด้วย string YYYY-MM-DD ได้
@@ -242,33 +274,43 @@ async function queryAgeDeaths(args: {
     .where(deathDate, ">=", compareStart as any)
     .where(deathDate, "<=", compareEnd as any)
     .where(sql`ic.age_y IS NOT NULL`)
+=======
+  const rows = await (db as any)
+    .selectFrom(sql`${sql.ref(D01_TABLE)}`.as("ic"))
+    .select([ageCase, sql<number>`COUNT(*)`.as("deaths")])
+    .where(sql`${refCol("ic", D01_PROVINCE_COL)} = ${args.provinceNameTh}`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} IS NOT NULL`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} >= ${start}`)
+    .where(sql`${refCol("ic", D01_DEATH_COL)} <= ${end}`)
+    .where(sql`${ageCol} IS NOT NULL`)
+>>>>>>> feature/Method_F&Method_G
     .groupBy("ageRange")
     .execute();
 
   const map = new Map<string, number>();
   for (const r of rows as any[]) {
+<<<<<<< HEAD
     const k = String(r.ageRange ?? "").trim();
     if (!k) continue;
     map.set(k, Number(r.deaths ?? 0));
+=======
+    const k = String(r?.ageRange ?? "").trim();
+    if (!k) continue;
+    map.set(k, Number(r?.deaths ?? 0));
+>>>>>>> feature/Method_F&Method_G
   }
 
-  const ordered: AgeRow[] = (AGE_ORDER as unknown as string[]).map((k) => ({
-    ageRange: k,
-    deaths: map.get(k) ?? 0,
+  return (AGE_ORDER as unknown as string[]).map((ageRange) => ({
+    ageRange,
+    deaths: map.get(ageRange) ?? 0,
   }));
-
-  const extras = Array.from(map.keys())
-    .filter((k) => !AGE_SET.has(k))
-    .sort((a, b) => orderIndex(a) - orderIndex(b) || a.localeCompare(b))
-    .map((k) => ({ ageRange: k, deaths: map.get(k) ?? 0 }));
-
-  return ordered.concat(extras);
 }
 
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
 
+<<<<<<< HEAD
     const start_date = sp.get("start_date") ?? "";
     const end_date = sp.get("end_date") ?? "";
     const mainProvince = sp.get("mainProvince") ?? "";
@@ -282,6 +324,26 @@ export async function GET(req: NextRequest) {
             "missing required query params (start_date,end_date,mainProvince,compareProvince,disease)",
         },
         { status: 400 }
+=======
+    const start_date = (sp.get("start_date") ?? "").trim();
+    const end_date = (sp.get("end_date") ?? "").trim();
+    const mainProvinceRaw = (sp.get("mainProvince") ?? "").trim();
+    const compareProvinceRaw = (sp.get("compareProvince") ?? "").trim();
+
+    if (!start_date || !end_date || !mainProvinceRaw || !compareProvinceRaw) {
+      return NextResponse.json({ ok: false, error: "missing required query params" }, { status: 400 });
+    }
+
+    const [mainProvince, compareProvince] = await Promise.all([
+      resolveProvinceName(mainProvinceRaw),
+      resolveProvinceName(compareProvinceRaw),
+    ]);
+
+    if (!mainProvince || !compareProvince) {
+      return NextResponse.json(
+        { ok: false, error: `ไม่พบจังหวัด: ${!mainProvince ? mainProvinceRaw : compareProvinceRaw}` },
+        { status: 404 }
+>>>>>>> feature/Method_F&Method_G
       );
     }
 
@@ -300,8 +362,10 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const merged = mergeAgeData(mainRows, compareRows);
+    const mainMap = new Map(mainRows.map((r) => [r.ageRange, r.deaths]));
+    const compareMap = new Map(compareRows.map((r) => [r.ageRange, r.deaths]));
 
+<<<<<<< HEAD
     return NextResponse.json(merged, {
       status: 200,
       headers: {
@@ -315,5 +379,17 @@ export async function GET(req: NextRequest) {
       { error: e?.message ?? "Internal Server Error" },
       { status: 500 }
     );
+=======
+    const out: RowOut[] = (AGE_ORDER as unknown as string[]).map((ageRange) => ({
+      ageRange,
+      mainDeaths: Number(mainMap.get(ageRange) ?? 0),
+      compareDeaths: Number(compareMap.get(ageRange) ?? 0),
+    }));
+
+    return NextResponse.json(out, { status: 200, headers: { "Cache-Control": "no-store" } });
+  } catch (e: any) {
+    console.error("❌ [compareInfo/age-group-deaths] error:", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
+>>>>>>> feature/Method_F&Method_G
   }
 }

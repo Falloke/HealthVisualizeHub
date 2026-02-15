@@ -460,12 +460,39 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
 
   const titleMain = useMemo(() => {
     const rankMain = findRank(mainRowsRaw, mainProvince);
+<<<<<<< HEAD
     return buildTitle({
       regionText: regionTextMain,
       province: mainProvince,
       rank: rankMain,
     });
   }, [mainRowsRaw, mainProvince, regionTextMain]);
+=======
+    const rankCompareInSame = sameRegion ? findRank(mainRowsRaw, compareProvince) : null;
+
+    if (sameRegion) {
+      const a = mainProvince || "—";
+      const b = compareProvince || "—";
+      return reg
+        ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${a} อยู่ลำดับที่ ${rankMain ?? "—"} • ${b} อยู่ลำดับที่ ${
+            rankCompareInSame ?? "—"
+          }`
+        : `Top 5 ผู้ป่วยสะสมในภูมิภาคเดียวกัน ${a} • ${b}`;
+    }
+
+    return reg
+      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${mainProvince || "—"} อยู่ลำดับที่ ${rankMain ?? "—"}`
+      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดหลัก ${mainProvince || "—"}`;
+  }, [
+    data?.mainRegion,
+    sameRegion,
+    mainRowsRaw,
+    mainProvince,
+    compareProvince,
+    regionById,
+    regionByKey,
+  ]);
+>>>>>>> feature/Method_F&Method_G
 
   const titleCompare = useMemo(() => {
     const rankCompare = findRank(compareRowsRaw, compareProvince);
@@ -476,7 +503,28 @@ export default function CompareRegionTop5Chart({ prefetched, parentLoading }: Pr
     });
   }, [compareRowsRaw, compareProvince, regionTextCompare]);
 
+<<<<<<< HEAD
   const showTwoCharts = compareRows.length > 0;
+=======
+    const regFull = resolveRegionName(data?.compareRegion, regionById, regionByKey);
+    const reg = regFull ? prettyRegion(regFull) : "";
+
+    const rank = findRank(compareRowsRaw, compareProvince);
+
+    return reg
+      ? `Top 5 ผู้ป่วยสะสมในภูมิภาค ${reg} ${compareProvince || "—"} อยู่ลำดับที่ ${rank ?? "—"}`
+      : `Top 5 ผู้ป่วยสะสมในภูมิภาคของจังหวัดที่เปรียบเทียบ ${compareProvince || "—"}`;
+  }, [data?.compareRegion, sameRegion, compareRowsRaw, compareProvince, regionById, regionByKey]);
+
+  if (!hasBoth) {
+    return (
+      <div className="rounded bg-white p-4 text-sm text-gray-500 shadow">
+        (เลือกจังหวัดหลัก และจังหวัดที่ต้องการเปรียบเทียบจาก Sidebar ให้ครบก่อน
+        เพื่อดูกราฟเปรียบเทียบภูมิภาค)
+      </div>
+    );
+  }
+>>>>>>> feature/Method_F&Method_G
 
   return (
     <div className="rounded bg-white p-4 shadow">

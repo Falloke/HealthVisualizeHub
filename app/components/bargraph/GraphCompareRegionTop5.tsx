@@ -675,7 +675,11 @@ export default function GraphCompareRegionTop5({ provinceA, provinceB }: Props) 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div ref={boxA.ref}>
           <h5 className="mb-2 font-semibold">
+<<<<<<< HEAD
             {regionAName ? `${regionAName}` : "ภูมิภาค"} — {provinceA ?? "-"}
+=======
+            ภูมิภาคของ {provinceA ?? "-"} {regionAName ? `${regionAName}` : ""}
+>>>>>>> feature/Method_F&Method_G
           </h5>
 
           {rowsAFill.length === 0 ? (

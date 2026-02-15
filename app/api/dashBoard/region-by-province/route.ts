@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 import provinces from "@/public/data/Thailand-ProvinceName.json";
 import { resolveDiseaseCode } from "@/lib/dashboard/dbExpr";
@@ -19,6 +23,7 @@ function parseYMDOrFallback(input: string | null, fallback: string) {
   return raw;
 }
 
+<<<<<<< HEAD
 function ymdToUTCStart(ymd: string) {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
@@ -93,11 +98,52 @@ async function resolveFactTable(
   if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
 
   return { schema, table };
+=======
+/**
+ * รองรับ province เป็น:
+ * - เลข (province_no ของ ref.provinces_moph)
+ * - ชื่อไทย (province_name_th)
+ */
+async function resolveProvinceFromRef(provinceParam: string) {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  // เป็นเลข: province_no
+  if (/^\d+$/.test(p)) {
+    const row = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select([
+        sql<number>`p.province_no`.as("province_no"),
+        sql<string>`p.province_name_th`.as("province_name_th"),
+        sql<string>`p.region_moph`.as("region_moph"),
+        sql<number | null>`p.region_id`.as("region_id"),
+      ])
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (row ?? null) as any;
+  }
+
+  // เป็นชื่อไทย: province_name_th
+  const row = await db
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select([
+      sql<number>`p.province_no`.as("province_no"),
+      sql<string>`p.province_name_th`.as("province_name_th"),
+      sql<string>`p.region_moph`.as("region_moph"),
+      sql<number | null>`p.region_id`.as("region_id"),
+    ])
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (row ?? null) as any;
+>>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
+<<<<<<< HEAD
 
     const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
     const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
@@ -108,12 +154,21 @@ export async function GET(request: NextRequest) {
     const diseaseParam = pickDisease(params);
 
     if (!province) {
+=======
+
+    const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
+    const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
+    const provinceParam = (params.get("province") ?? "").trim();
+
+    if (!provinceParam) {
+>>>>>>> feature/Method_F&Method_G
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
     if (!diseaseParam) {
       return NextResponse.json({ error: "ต้องระบุ disease" }, { status: 400 });
     }
 
+<<<<<<< HEAD
     // ✅ กันปัญหา D01 / 01 / 1 ไม่ match
     const diseaseCode = await resolveDiseaseCode(db as any, diseaseParam);
     if (!diseaseCode) {
@@ -175,9 +230,33 @@ export async function GET(request: NextRequest) {
       .select([
         sql<string>`ic.province`.as("province"),
         sql<number>`COUNT(*)::int`.as("patients"),
+=======
+    // 1) หา “ภูมิภาค” ของจังหวัดที่เลือกจาก ref.provinces_moph
+    const selected = await resolveProvinceFromRef(provinceParam);
+    if (!selected?.province_name_th) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${provinceParam}` }, { status: 404 });
+    }
+
+    const regionMoph = String(selected.region_moph ?? "").trim() || "ไม่ทราบภูมิภาค";
+
+    // 2) ดึง Top 5 “ผู้เสียชีวิตสะสม” ภายในภูมิภาคเดียวกัน (ช่วงวันที่)
+    // join ด้วยชื่อจังหวัด โดย trim ฝั่ง ic กันช่องว่างหลุด
+    const topDeaths = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .innerJoin(sql`ref.provinces_moph`.as("p"), (join: any) =>
+        join.on(sql<string>`btrim(ic.province)`, "=", sql<string>`p.province_name_th`)
+      )
+      .select([
+        sql<string>`p.province_name_th`.as("province"),
+        sql<number>`COUNT(*)`.as("patients"),
+        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
+        sql<string>`p.region_moph`.as("region"),
+>>>>>>> feature/Method_F&Method_G
       ])
+      .where(sql<string>`p.region_moph`, "=", regionMoph)
       .where("ic.onset_date_parsed", ">=", startDate)
       .where("ic.onset_date_parsed", "<=", endDate)
+<<<<<<< HEAD
       .where("ic.disease_code", "=", diseaseCode)
       .where("ic.province", "in", provincesInRegion)
       .groupBy(sql`ic.province`)
@@ -279,6 +358,47 @@ export async function GET(request: NextRequest) {
         topDeaths,
         selected,
         selectedProvince,
+=======
+      .groupBy(sql`p.province_name_th`)
+      .groupBy(sql`p.region_moph`)
+      .orderBy("deaths", "desc")
+      .orderBy("patients", "desc")
+      .limit(5)
+      .execute();
+
+    // 3) เผื่อให้กราฟอีกตัวใช้ได้ด้วย (Top 5 ผู้ป่วยในภูมิภาคเดียวกัน)
+    const topPatients = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .innerJoin(sql`ref.provinces_moph`.as("p"), (join: any) =>
+        join.on(sql<string>`btrim(ic.province)`, "=", sql<string>`p.province_name_th`)
+      )
+      .select([
+        sql<string>`p.province_name_th`.as("province"),
+        sql<number>`COUNT(*)`.as("patients"),
+        sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"),
+        sql<string>`p.region_moph`.as("region"),
+      ])
+      .where(sql<string>`p.region_moph`, "=", regionMoph)
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .groupBy(sql`p.province_name_th`)
+      .groupBy(sql`p.region_moph`)
+      .orderBy("patients", "desc")
+      .orderBy("deaths", "desc")
+      .limit(5)
+      .execute();
+
+    return NextResponse.json(
+      {
+        region: regionMoph,
+        selectedProvince: {
+          province: selected.province_name_th,
+          province_no: selected.province_no ?? null,
+          region_id: selected.region_id ?? null,
+        },
+        topDeaths,
+        topPatients,
+>>>>>>> feature/Method_F&Method_G
       },
       { status: 200 }
     );

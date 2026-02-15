@@ -118,7 +118,10 @@ export async function POST(request: Request) {
 
     const hash = await bcrypt.hash(password, 10);
 
+<<<<<<< HEAD
     // ✅ สร้าง data แบบชัดเจน ไม่ใช้ spread ที่ทำ TS งง
+=======
+>>>>>>> feature/Method_F&Method_G
     const data: any = {
       first_name,
       last_name,
@@ -128,9 +131,14 @@ export async function POST(request: Request) {
       province,
       password: hash,
     };
+<<<<<<< HEAD
 
     if (birthDateValue) {
       data.brith_date = birthDateValue; // ✅ Prisma รับ Date ได้ตรง ๆ
+=======
+    if (brith_date !== undefined && brith_date !== null && brith_date !== "") {
+      data.brith_date = new Date(brith_date);
+>>>>>>> feature/Method_F&Method_G
     }
 
     const created = await prisma.user.create({

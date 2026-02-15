@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -25,6 +29,7 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
+<<<<<<< HEAD
 function pickDisease(params: URLSearchParams) {
   return (
     (params.get("disease") ||
@@ -57,6 +62,35 @@ async function resolveFactTable(diseaseCode: string) {
   if (!schema || !table || !ok(schema) || !ok(table)) return fallback;
 
   return { schema, table };
+=======
+/**
+ * ✅ ใช้ ref.provinces_moph แทน provinces
+ * - รับ province ได้ทั้งเลข (province_no) หรือชื่อไทย (province_name_th)
+ */
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  // ส่งเป็นเลข -> province_no
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  // ส่งเป็นชื่อไทย -> เช็คชื่อมาตรฐานจาก ref.provinces_moph
+  const found = await db
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (found?.province_name_th ?? "").trim() || null;
+>>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
@@ -79,6 +113,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
+<<<<<<< HEAD
     // ✅ ถ้าเลือก "ทุกจังหวัด" ให้ไม่กรอง province
     const isAllProvince =
       provinceRaw === "ทุกจังหวัด" ||
@@ -111,17 +146,43 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = await q.groupBy("ic.age_y").execute();
+=======
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    }
+
+    // 📍 method_f/g: นับผู้ป่วยแยกตามอายุจาก d01_influenza (denormalized)
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(*)`.as("patients"), "ic.age_y as age_y"])
+      .where("ic.onset_date_parsed", ">=", startDate)
+      .where("ic.onset_date_parsed", "<=", endDate)
+      .where("ic.province", "=", provinceName)
+      .where("ic.age_y", "is not", null)
+      .groupBy("ic.age_y")
+      .execute();
+>>>>>>> feature/Method_F&Method_G
 
     // 📊 Map age → group
     const grouped: Record<string, number> = {};
     for (const g of ageGroups) grouped[g.label] = 0;
 
+<<<<<<< HEAD
     for (const row of rows as any[]) {
       const age = Number(row.age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
       if (group) grouped[group.label] += Number(row.patients || 0);
+=======
+    for (const row of rows) {
+      const age = Number((row as any).age_y);
+      if (!Number.isFinite(age)) continue;
+
+      const group = ageGroups.find((g) => age >= g.min && age <= g.max);
+      if (group) grouped[group.label] += Number((row as any).patients ?? 0);
+>>>>>>> feature/Method_F&Method_G
     }
 
     const result = Object.entries(grouped).map(([ageRange, patients]) => ({
@@ -135,9 +196,13 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
+<<<<<<< HEAD
     return NextResponse.json([], {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+=======
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+>>>>>>> feature/Method_F&Method_G
   }
 }

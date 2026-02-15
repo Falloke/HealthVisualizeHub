@@ -31,6 +31,7 @@ type CacheEntry = {
 const CHART_HEIGHT = 400;
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
+<<<<<<< HEAD
 /** ✅ FIX: ใช้ type tooltip แบบ minimal (Recharts บางเวอร์ชัน TooltipProps ไม่มี payload) */
 type TooltipContentProps = {
   active?: boolean;
@@ -42,13 +43,23 @@ const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip({
   active,
   payload,
 }: TooltipContentProps): React.ReactElement | null {
+=======
+const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip(props: TooltipProps<number, string>): React.ReactElement | null {
+  const active = (props as any).active;
+  const payload = (props as any).payload as any[] | undefined;
+>>>>>>> feature/Method_F&Method_G
   if (!active || !payload || payload.length === 0) return null;
 
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
+<<<<<<< HEAD
   const main = payload.find((p) => p?.dataKey === "mainDeaths");
   const compare = payload.find((p) => p?.dataKey === "compareDeaths");
+=======
+  const main = payload.find((p: any) => p.dataKey === "mainDeaths");
+  const compare = payload.find((p: any) => p.dataKey === "compareDeaths");
+>>>>>>> feature/Method_F&Method_G
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -244,7 +255,13 @@ export default function CompareAgeDeathsChart() {
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
         เปรียบเทียบผู้เสียชีวิตสะสมรายช่วงอายุ{" "}
+<<<<<<< HEAD
         {hasBoth ? `${mainProvince} และ ${compareProvince}` : "(เลือกระบุจังหวัดให้ครบ)"}
+=======
+        {hasBoth
+          ? `${mainProvince} และ ${compareProvince}`
+          : "(เลือกระบุจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ)"}
+>>>>>>> feature/Method_F&Method_G
       </h4>
 
       {!hasBoth ? (

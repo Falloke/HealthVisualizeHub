@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import db from "@/lib/kysely/db";
+=======
+import db from "@/lib/kysely4/db";
+>>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
@@ -29,6 +33,7 @@ function parseYMDOrFallback(input: string | null, fallback: string) {
   return raw;
 }
 
+<<<<<<< HEAD
 /** ✅ helper: รองรับ cast วันตาม env */
 function dateExpr(tableAlias: string, col: string, cast: string) {
   const ref = sql.ref(`${tableAlias}.${col}`);
@@ -67,6 +72,33 @@ async function resolveFactTable(diseaseCode: string) {
   if (!schema || !table || !ok(schema) || !ok(table)) return fallback;
 
   return { schema, table };
+=======
+/**
+ * ✅ ใช้ ref.provinces_moph แทน provinces
+ * - รับ province ได้ทั้งเลข (province_no) หรือชื่อไทย (province_name_th)
+ */
+async function resolveProvinceName(provinceParam: string): Promise<string | null> {
+  const p = (provinceParam ?? "").trim();
+  if (!p) return null;
+
+  if (/^\d+$/.test(p)) {
+    const found = await db
+      .selectFrom(sql`ref.provinces_moph`.as("p"))
+      .select(sql<string>`p.province_name_th`.as("province_name_th"))
+      .where(sql<number>`p.province_no`, "=", Number(p))
+      .executeTakeFirst();
+
+    return (found?.province_name_th ?? "").trim() || null;
+  }
+
+  const found = await db
+    .selectFrom(sql`ref.provinces_moph`.as("p"))
+    .select(sql<string>`p.province_name_th`.as("province_name_th"))
+    .where(sql<string>`p.province_name_th`, "=", p)
+    .executeTakeFirst();
+
+  return (found?.province_name_th ?? "").trim() || null;
+>>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
@@ -83,6 +115,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
+<<<<<<< HEAD
     // ✅ ถ้าไม่มีโรค -> คืน 0 ทุกช่วงอายุ (เพื่อไม่ให้กราฟพัง/ค้าง)
     if (!diseaseCode) {
       const empty = ageGroups.map((g) => ({ ageRange: g.label, deaths: 0 }));
@@ -109,18 +142,43 @@ export async function GET(request: NextRequest) {
       .where(deathDate, "<=", endDate)
       .where("ic.age_y", "is not", null)
       .groupBy(sql`ic.age_y`)
+=======
+    const provinceName = await resolveProvinceName(province);
+    if (!provinceName) {
+      return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
+    }
+
+    // 📍 method_f/g: ผู้เสียชีวิตของจังหวัดนั้น (นับจาก death_date_parsed)
+    const rows = await (db as any)
+      .selectFrom("d01_influenza as ic")
+      .select([sql<number>`COUNT(ic.death_date_parsed)`.as("deaths"), "ic.age_y as age_y"])
+      .where("ic.province", "=", provinceName)
+      .where("ic.death_date_parsed", "is not", null)
+      .where("ic.death_date_parsed", ">=", startDate)
+      .where("ic.death_date_parsed", "<=", endDate)
+      .where("ic.age_y", "is not", null)
+      .groupBy("ic.age_y")
+>>>>>>> feature/Method_F&Method_G
       .execute();
 
-    // 📊 Map age → group
     const grouped: Record<string, number> = {};
     for (const g of ageGroups) grouped[g.label] = 0;
 
+<<<<<<< HEAD
     for (const row of rows as any[]) {
       const age = Number(row.age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
       if (group) grouped[group.label] += Number(row.deaths || 0);
+=======
+    for (const row of rows) {
+      const age = Number((row as any).age_y);
+      if (!Number.isFinite(age)) continue;
+
+      const group = ageGroups.find((g) => age >= g.min && age <= g.max);
+      if (group) grouped[group.label] += Number((row as any).deaths ?? 0);
+>>>>>>> feature/Method_F&Method_G
     }
 
     // ✅ คืนผลเรียงตาม ageGroups เสมอ
@@ -135,9 +193,13 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group-deaths):", error);
+<<<<<<< HEAD
     return NextResponse.json([], {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
+=======
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+>>>>>>> feature/Method_F&Method_G
   }
 }
