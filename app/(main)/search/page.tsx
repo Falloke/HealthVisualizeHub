@@ -1,10 +1,11 @@
-import { Suspense } from "react";
 import SearchPage from "@/app/features/main/searchPage";
 
-export default function Search() {
+const Search = () => {
   return (
-    <Suspense fallback={null}>
+    <div>
       <SearchPage />
-    </Suspense>
+    </div>
   );
-}
+};
+
+export default Search;

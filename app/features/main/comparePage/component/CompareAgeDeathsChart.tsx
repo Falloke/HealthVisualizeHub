@@ -11,7 +11,7 @@ import {
   LabelList,
   Legend,
 } from "recharts";
-
+import type { TooltipProps } from "recharts";
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
 import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
@@ -31,35 +31,15 @@ type CacheEntry = {
 const CHART_HEIGHT = 400;
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
-<<<<<<< HEAD
-/** ✅ FIX: ใช้ type tooltip แบบ minimal (Recharts บางเวอร์ชัน TooltipProps ไม่มี payload) */
-type TooltipContentProps = {
-  active?: boolean;
-  payload?: Array<any>;
-  label?: any;
-};
-
-const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip({
-  active,
-  payload,
-}: TooltipContentProps): React.ReactElement | null {
-=======
 const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip(props: TooltipProps<number, string>): React.ReactElement | null {
   const active = (props as any).active;
   const payload = (props as any).payload as any[] | undefined;
->>>>>>> feature/Method_F&Method_G
   if (!active || !payload || payload.length === 0) return null;
-
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
-<<<<<<< HEAD
-  const main = payload.find((p) => p?.dataKey === "mainDeaths");
-  const compare = payload.find((p) => p?.dataKey === "compareDeaths");
-=======
   const main = payload.find((p: any) => p.dataKey === "mainDeaths");
   const compare = payload.find((p: any) => p.dataKey === "compareDeaths");
->>>>>>> feature/Method_F&Method_G
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -67,17 +47,15 @@ const AgeDeathsCompareTooltip = React.memo(function AgeDeathsCompareTooltip(prop
 
       {main && (
         <div className="text-gray-700">
-          {main.name ?? "จังหวัดหลัก"} :{" "}
-          <span className="font-semibold">
-            {TH_NUMBER(Number(main.value ?? 0))}
-          </span>{" "}
+          {main.name} :{" "}
+          <span className="font-semibold">{TH_NUMBER(Number(main.value ?? 0))}</span>{" "}
           ราย
         </div>
       )}
 
       {compare && (
         <div className="text-gray-700">
-          {compare.name ?? "จังหวัดเปรียบเทียบ"} :{" "}
+          {compare.name} :{" "}
           <span className="font-semibold">
             {TH_NUMBER(Number(compare.value ?? 0))}
           </span>{" "}
@@ -112,7 +90,6 @@ function renderCompareLabel(p: any) {
   );
 }
 
-/** ✅ รองรับ response หลายรูปแบบ */
 function normalizeRows(input: unknown): RowMerged[] {
   if (Array.isArray(input)) return input as RowMerged[];
   if (!input || typeof input !== "object") return [];
@@ -133,14 +110,7 @@ function sumDeaths(rows: RowMerged[]) {
 }
 
 export default function CompareAgeDeathsChart() {
-  const store = useDashboardStore() as any;
-  const { start_date, end_date } = store;
-
-  // ✅ FIX: ดึงโรคจาก store แบบชัวร์ (ไม่เรียก hook ในฟังก์ชันย่อย)
-  const disease = String(
-    store?.diseaseCode ?? store?.disease ?? store?.disease_code ?? ""
-  ).trim();
-
+  const { start_date, end_date, diseaseCode } = useDashboardStore(); // ✅ เพิ่ม diseaseCode
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<RowMerged[]>([]);
@@ -149,26 +119,25 @@ export default function CompareAgeDeathsChart() {
   const [fetchOk, setFetchOk] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
-  const hasDisease = !!disease;
 
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
   const requestUrl = useMemo(() => {
-    if (!hasBoth || !hasDisease) return "";
+    if (!hasBoth) return "";
 
     const sp = new URLSearchParams();
-    sp.set("disease", disease);
+    sp.set("disease", diseaseCode || ""); // ✅ ส่งโรคไปด้วย
     sp.set("start_date", start_date || "");
     sp.set("end_date", end_date || "");
     sp.set("mainProvince", mainProvince!);
     sp.set("compareProvince", compareProvince!);
 
     return `/api/compareInfo/age-group-deaths?${sp.toString()}`;
-  }, [hasBoth, hasDisease, disease, start_date, end_date, mainProvince, compareProvince]);
+  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
   useEffect(() => {
-    if (!hasBoth || !hasDisease || !requestUrl) {
+    if (!hasBoth || !requestUrl) {
       setRows([]);
       setLoading(false);
       setNoDeaths(false);
@@ -238,7 +207,7 @@ export default function CompareAgeDeathsChart() {
       ac.abort();
       inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, hasDisease, requestUrl]);
+  }, [hasBoth, requestUrl]);
 
   const xMax = useMemo(() => {
     let m = 0;
@@ -255,21 +224,15 @@ export default function CompareAgeDeathsChart() {
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
         เปรียบเทียบผู้เสียชีวิตสะสมรายช่วงอายุ{" "}
-<<<<<<< HEAD
-        {hasBoth ? `${mainProvince} และ ${compareProvince}` : "(เลือกระบุจังหวัดให้ครบ)"}
-=======
         {hasBoth
           ? `${mainProvince} และ ${compareProvince}`
           : "(เลือกระบุจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ)"}
->>>>>>> feature/Method_F&Method_G
       </h4>
 
       {!hasBoth ? (
         <p className="mt-4 text-sm text-gray-500">
           (เลือกจังหวัดให้ครบ 2 จังหวัดจาก Sidebar ก่อน แล้วกราฟเปรียบเทียบจะปรากฏ)
         </p>
-      ) : !hasDisease ? (
-        <p className="mt-4 text-sm text-gray-500">(กรุณาเลือกโรคก่อน)</p>
       ) : (
         <div className="relative">
           {loading && (
@@ -279,7 +242,9 @@ export default function CompareAgeDeathsChart() {
           )}
 
           {!loading && fetchOk && noDeaths ? (
-            <p className="text-sm font-medium text-gray-700">ไม่มีผู้เสียชีวิตในช่วงเวลานี้</p>
+            <p className="text-sm font-medium text-gray-700">
+              ไม่มีผู้เสียชีวิตในช่วงเวลานี้
+            </p>
           ) : !loading && rows.length === 0 ? (
             <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
           ) : (
@@ -304,9 +269,9 @@ export default function CompareAgeDeathsChart() {
                   interval={0}
                   tick={{ fontSize: 12, fill: "#6B7280" }}
                 />
-
-                {/* ✅ FIX: Tooltip ไม่ใช้ TooltipProps แล้ว */}
                 <Tooltip content={<AgeDeathsCompareTooltip />} />
+
+                {/* ✅ ซ่อน Legend ถ้าไม่มีผู้เสียชีวิต */}
                 {!noDeaths && <Legend wrapperStyle={{ fontSize: 12 }} />}
 
                 <Bar

@@ -1,28 +1,27 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaClient, Prisma } from "@/generated/prisma/client";
 import bcrypt from "bcryptjs";
-
 const prisma = new PrismaClient();
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Credentials({
+      // You can specify which fields should be submitted, by adding keys to the `credentials` object.
+      // e.g. domain, username, password, 2FA token, etc.
       credentials: {
         email: { label: "email", type: "text" },
         password: { label: "password", type: "password" },
       },
 
-      // ✅ FIX: authorize ต้องรับ (credentials, request)
-      authorize: async (credentials, _req) => {
-        const email = String(credentials?.email ?? "").trim();
-        const password = String(credentials?.password ?? "");
-
-        if (!email || !password) return null;
+      authorize: async (credentials) => {
+        if (!credentials?.email || !credentials?.password) return null;
 
         try {
           const user = await prisma.user.findUnique({
-            where: { email },
+            where: {
+              email: credentials.email,
+            },
             select: {
               id: true,
               first_name: true,
@@ -33,23 +32,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             },
           });
 
-          if (!user) return null;
 
-          const passwordCorrect = bcrypt.compareSync(password, user.password);
-          if (!passwordCorrect) return null;
-
-          // ✅ FIX: ห้ามส่ง password กลับ + ต้องให้ id เป็น string ตาม type ของ NextAuth
-          return {
-            id: String(user.id),
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            role: user.role,
-          } as any;
+          if (user) {
+            const passwordCorrect = bcrypt.compareSync(
+              credentials.password,
+              user.password
+            );
+            if (passwordCorrect) {
+              return user;
+            }
+          }
         } catch (error) {
           console.error("Authorize error:", error);
           return null;
         }
+
+        return null;
       },
     }),
   ],
@@ -57,22 +55,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user, account }) {
       if (account?.provider === "credentials" && user) {
-        // ✅ FIX: user.id เป็น string แล้ว
-        token.id = (user as any).id;
-        token.first_name = (user as any).first_name;
-        token.last_name = (user as any).last_name;
-        token.role = (user as any).role;
+        token.id = user.id;
+        token.first_name = user.first_name;
+        token.last_name = user.last_name;
+        token.role = user.role;
       }
       return token;
     },
 
     async session({ session, token }) {
+      // console.log(session, token);
+      // const now = new Date();
+
       if (session.user) {
-        (session.user as any).id = token.id;
-        (session.user as any).first_name = token.first_name;
-        (session.user as any).last_name = token.last_name;
-        (session.user as any).role = token.role;
+        session.user.id = token.id;
+        session.user.first_name = token.first_name;
+        session.user.last_name = token.last_name;
+        session.user.role = token.role;
+        
       }
+
+      // if (new Date(session.expires) < new Date('2026-09-22T20:54:41.484Z')) {
+      //   return null; // หมดอายุ
+      // }
+
       return session;
     },
   },

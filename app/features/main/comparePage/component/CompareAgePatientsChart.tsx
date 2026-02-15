@@ -11,6 +11,7 @@ import {
   LabelList,
   Legend,
 } from "recharts";
+import type { TooltipProps } from "recharts";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
@@ -31,19 +32,6 @@ type CacheEntry = {
 const CHART_HEIGHT = 400;
 const CLIENT_CACHE_TTL_MS = 2 * 60 * 1000;
 
-<<<<<<< HEAD
-/** ✅ FIX: type tooltip minimal */
-type TooltipContentProps = {
-  active?: boolean;
-  payload?: Array<any>;
-  label?: any;
-};
-
-const AgeCompareTooltip = React.memo(function AgeCompareTooltip({
-  active,
-  payload,
-}: TooltipContentProps): React.ReactElement | null {
-=======
 const AgeCompareTooltip = React.memo(function AgeCompareTooltip(
   props: TooltipProps<number, string>
 ): React.ReactElement | null {
@@ -55,14 +43,13 @@ const AgeCompareTooltip = React.memo(function AgeCompareTooltip(
     payload?: RowMerged;
   }>;
 
->>>>>>> feature/Method_F&Method_G
   if (!active || !payload || payload.length === 0) return null;
 
   const row = payload[0]?.payload as RowMerged | undefined;
   if (!row) return null;
 
-  const main = payload.find((p) => p?.dataKey === "mainPatients");
-  const compare = payload.find((p) => p?.dataKey === "comparePatients");
+  const main = payload.find((p) => p.dataKey === "mainPatients");
+  const compare = payload.find((p) => p.dataKey === "comparePatients");
 
   return (
     <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
@@ -70,30 +57,14 @@ const AgeCompareTooltip = React.memo(function AgeCompareTooltip(
 
       {main && (
         <div className="text-gray-700">
-<<<<<<< HEAD
-          {main.name ?? "จังหวัดหลัก"} :{" "}
-          <span className="font-semibold">
-            {TH_NUMBER(Number(main.value ?? 0))}
-          </span>{" "}
-          ราย
-=======
           {main.name} : <span className="font-semibold">{TH_NUMBER(Number(main.value ?? 0))}</span> ราย
->>>>>>> feature/Method_F&Method_G
         </div>
       )}
 
       {compare && (
         <div className="text-gray-700">
-<<<<<<< HEAD
-          {compare.name ?? "จังหวัดเปรียบเทียบ"} :{" "}
-          <span className="font-semibold">
-            {TH_NUMBER(Number(compare.value ?? 0))}
-          </span>{" "}
-          ราย
-=======
           {compare.name} :{" "}
           <span className="font-semibold">{TH_NUMBER(Number(compare.value ?? 0))}</span> ราย
->>>>>>> feature/Method_F&Method_G
         </div>
       )}
     </div>
@@ -103,13 +74,6 @@ const AgeCompareTooltip = React.memo(function AgeCompareTooltip(
 function renderMainLabel(p: any) {
   const v = Number(p.value ?? 0);
   if (!Number.isFinite(v) || v <= 0) return null;
-<<<<<<< HEAD
-
-  const xx = Number(p.x ?? 0) + Number(p.width ?? 0) + 6;
-  const yy = Number(p.y ?? 0) + Number(p.height ?? 0) / 2 + 4;
-
-=======
->>>>>>> feature/Method_F&Method_G
   return (
     <text x={Number(p.x ?? 0) + Number(p.width ?? 0) + 6} y={Number(p.y ?? 0) + 12} fontSize={12} fill="#374151">
       {TH_NUMBER(v)} ราย
@@ -120,13 +84,6 @@ function renderMainLabel(p: any) {
 function renderCompareLabel(p: any) {
   const v = Number(p.value ?? 0);
   if (!Number.isFinite(v) || v <= 0) return null;
-<<<<<<< HEAD
-
-  const xx = Number(p.x ?? 0) + Number(p.width ?? 0) + 6;
-  const yy = Number(p.y ?? 0) + Number(p.height ?? 0) / 2 + 4;
-
-=======
->>>>>>> feature/Method_F&Method_G
   return (
     <text x={Number(p.x ?? 0) + Number(p.width ?? 0) + 6} y={Number(p.y ?? 0) + 12} fontSize={12} fill="#4B5563">
       {TH_NUMBER(v)} ราย
@@ -166,17 +123,7 @@ function sumPatients(rows: RowMerged[]) {
 }
 
 export default function CompareAgePatientsChart() {
-<<<<<<< HEAD
-  const store = useDashboardStore() as any;
-  const { start_date, end_date } = store;
-
-  const disease = String(
-    store?.diseaseCode ?? store?.disease ?? store?.disease_code ?? ""
-  ).trim();
-
-=======
   const { start_date, end_date, diseaseCode } = useDashboardStore();
->>>>>>> feature/Method_F&Method_G
   const { mainProvince, compareProvince } = useCompareStore();
 
   const [rows, setRows] = useState<RowMerged[]>([]);
@@ -185,30 +132,25 @@ export default function CompareAgePatientsChart() {
   const [fetchOk, setFetchOk] = useState(false);
 
   const hasBoth = !!mainProvince && !!compareProvince;
-  const hasDisease = !!disease;
 
   const cacheRef = useRef<Map<string, CacheEntry>>(new Map());
   const inFlightRef = useRef<Map<string, AbortController>>(new Map());
 
   const requestUrl = useMemo(() => {
-    if (!hasBoth || !hasDisease) return "";
+    if (!hasBoth) return "";
 
     const sp = new URLSearchParams();
-<<<<<<< HEAD
-    sp.set("disease", disease);
-=======
     sp.set("disease", diseaseCode || "D01");
->>>>>>> feature/Method_F&Method_G
     sp.set("start_date", start_date || "");
     sp.set("end_date", end_date || "");
     sp.set("mainProvince", mainProvince!);
     sp.set("compareProvince", compareProvince!);
 
     return `/api/compareInfo/age-group?${sp.toString()}`;
-  }, [hasBoth, hasDisease, disease, start_date, end_date, mainProvince, compareProvince]);
+  }, [hasBoth, diseaseCode, start_date, end_date, mainProvince, compareProvince]);
 
   useEffect(() => {
-    if (!hasBoth || !hasDisease || !requestUrl) {
+    if (!hasBoth || !requestUrl) {
       setRows([]);
       setLoading(false);
       setNoPatients(false);
@@ -242,16 +184,10 @@ export default function CompareAgePatientsChart() {
           cache: "no-store",
         });
 
-<<<<<<< HEAD
-        const text = await res.text().catch(() => "");
-        if (!res.ok) {
-          throw new Error(text || "โหลดข้อมูลเปรียบเทียบผู้ป่วยตามช่วงอายุไม่สำเร็จ");
-=======
         const rawText = await res.text().catch(() => "");
         if (!res.ok) {
           console.error("compare age api not ok", res.status, rawText);
           throw new Error(rawText || "โหลดข้อมูลเปรียบเทียบผู้ป่วยตามช่วงอายุไม่สำเร็จ");
->>>>>>> feature/Method_F&Method_G
         }
 
         let json: unknown = {};
@@ -285,7 +221,7 @@ export default function CompareAgePatientsChart() {
       ac.abort();
       inFlightRef.current.delete(requestUrl);
     };
-  }, [hasBoth, hasDisease, requestUrl]);
+  }, [hasBoth, requestUrl]);
 
   const xMax = useMemo(() => {
     let m = 0;
@@ -299,11 +235,7 @@ export default function CompareAgePatientsChart() {
   }, [rows]);
 
   const title = useMemo(() => {
-<<<<<<< HEAD
-    if (!hasBoth) return "เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ (เลือกจังหวัดให้ครบ)";
-=======
     if (!hasBoth) return "เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ เลือกจังหวัดหลักและจังหวัดเปรียบเทียบให้ครบ";
->>>>>>> feature/Method_F&Method_G
     return `เปรียบเทียบผู้ป่วยสะสมรายช่วงอายุ ${mainProvince} และ ${compareProvince}`;
   }, [hasBoth, mainProvince, compareProvince]);
 
@@ -312,15 +244,7 @@ export default function CompareAgePatientsChart() {
       <h2 className="mb-2 text-base font-bold">{title}</h2>
 
       {!hasBoth ? (
-<<<<<<< HEAD
-        <p className="mt-4 text-sm text-gray-500">
-          (เลือกจังหวัดให้ครบ 2 จังหวัดจาก Sidebar ก่อน แล้วกราฟเปรียบเทียบจะปรากฏ)
-        </p>
-      ) : !hasDisease ? (
-        <p className="mt-4 text-sm text-gray-500">(กรุณาเลือกโรคก่อน)</p>
-=======
         <p className="mt-4 text-sm text-gray-500">เลือกจังหวัดให้ครบ 2 จังหวัดจาก Sidebar ก่อน แล้วกราฟเปรียบเทียบจะปรากฏ</p>
->>>>>>> feature/Method_F&Method_G
       ) : (
         <div className="relative" aria-busy={loading} aria-live="polite">
           {loading && (
@@ -329,13 +253,9 @@ export default function CompareAgePatientsChart() {
             </div>
           )}
 
-<<<<<<< HEAD
-          {!loading && fetchOk && noPatients ? (
-=======
           {!loading && !fetchOk ? (
             <p className="text-sm text-red-600">โหลดข้อมูลไม่สำเร็จ โปรดตรวจสอบ api</p>
           ) : !loading && fetchOk && noPatients ? (
->>>>>>> feature/Method_F&Method_G
             <p className="text-sm font-medium text-gray-700">ไม่มีผู้ป่วยในช่วงเวลานี้</p>
           ) : !loading && rows.length === 0 ? (
             <p className="text-sm text-gray-500">ไม่พบข้อมูลสำหรับการเปรียบเทียบ</p>
@@ -347,26 +267,8 @@ export default function CompareAgePatientsChart() {
                 margin={{ top: 8, right: 64, bottom: 16, left: 40 }}
                 barCategoryGap="8%"
               >
-<<<<<<< HEAD
-                <XAxis
-                  type="number"
-                  tickFormatter={TH_NUMBER}
-                  domain={[0, xMax]}
-                  tickMargin={8}
-                  allowDecimals={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="ageRange"
-                  width={56}
-                  interval={0}
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                />
-
-=======
                 <XAxis type="number" tickFormatter={TH_NUMBER} domain={[0, xMax]} tickMargin={8} allowDecimals={false} />
                 <YAxis type="category" dataKey="ageRange" width={56} interval={0} tick={{ fontSize: 12, fill: "#6B7280" }} />
->>>>>>> feature/Method_F&Method_G
                 <Tooltip content={<AgeCompareTooltip />} />
                 {!noPatients && <Legend wrapperStyle={{ fontSize: 12 }} />}
 

@@ -1,65 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
-import db from "@/lib/kysely/db";
-=======
 import db from "@/lib/kysely4/db";
->>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-<<<<<<< HEAD
-// ----------------------
-// ✅ Helpers (YMD + UTC)
-// ----------------------
-function parseYMDOrFallback(input: string | null, fallback: string) {
-  const raw = (input && input.trim()) || fallback;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
-  return raw;
-}
-
-function ymdToUTCStart(ymd: string) {
-  return new Date(`${ymd}T00:00:00.000Z`);
-}
-function ymdToUTCEnd(ymd: string) {
-  return new Date(`${ymd}T23:59:59.999Z`);
-}
-
-function pickDisease(params: URLSearchParams) {
-  return (
-    (params.get("disease") ||
-      params.get("diseaseCode") ||
-      params.get("disease_code") ||
-      "")!
-  ).trim();
-}
-
-function isSafeIdent(s: string) {
-  return /^[a-z0-9_]+$/i.test(s);
-}
-
-async function resolveFactTable(
-  diseaseCode: string
-): Promise<{ schema: string; table: string } | null> {
-  if (!diseaseCode) return null;
-
-  const row = await (db as any)
-    .selectFrom("disease_fact_tables")
-    .select(["schema_name", "table_name", "is_active"])
-    .where("disease_code", "=", diseaseCode)
-    .where("is_active", "=", true)
-    .executeTakeFirst();
-
-  const schema = String((row as any)?.schema_name || "").trim();
-  const table = String((row as any)?.table_name || "").trim();
-
-  if (!schema || !table) return null;
-  if (!isSafeIdent(schema) || !isSafeIdent(table)) return null;
-
-  return { schema, table };
-=======
 type RegionRow = {
   region: string;
   patients: number;
@@ -71,7 +17,6 @@ function parseDateOrFallback(input: string | null, fallback: string): Date {
   const d = new Date(raw);
   if (!Number.isFinite(d.getTime())) return new Date(fallback);
   return d;
->>>>>>> feature/Method_F&Method_G
 }
 
 function assertIdent(name: string, label: string): string {
@@ -90,69 +35,6 @@ function assertIdent(name: string, label: string): string {
  */
 export async function GET(request: NextRequest) {
   try {
-<<<<<<< HEAD
-    const params = request.nextUrl.searchParams;
-
-    const startYMD = parseYMDOrFallback(params.get("start_date"), "2024-01-01");
-    const endYMD = parseYMDOrFallback(params.get("end_date"), "2024-12-31");
-
-    const startDate = ymdToUTCStart(startYMD);
-    const endDate = ymdToUTCEnd(endYMD);
-
-    const disease = pickDisease(params);
-
-    // ✅ ถ้าไม่ส่งโรคมา -> คืน [] (กันหน้าแตก)
-    if (!disease) {
-      return NextResponse.json([], { status: 200 });
-    }
-
-    const fact = await resolveFactTable(disease);
-    if (!fact) {
-      return NextResponse.json([], { status: 200 });
-    }
-
-    // ✅ ผู้ป่วย + ผู้เสียชีวิต grouped by จังหวัด
-    const rows = await (db as any)
-      .withSchema(fact.schema)
-      .selectFrom(`${fact.table} as ic` as any)
-      .select([
-        sql<string>`ic.province`.as("province"),
-        sql<number>`COUNT(*)::int`.as("patients"),
-        sql<number>`COUNT(*) FILTER (WHERE ic.death_date_parsed IS NOT NULL)::int`.as(
-          "deaths"
-        ),
-      ])
-      .where("ic.onset_date_parsed", ">=", startDate)
-      .where("ic.onset_date_parsed", "<=", endDate)
-      .where("ic.disease_code", "=", disease)
-      .where("ic.province", "is not", null)
-      .groupBy(sql`ic.province`)
-      .execute();
-
-    // 🗺️ Mapping จังหวัด → ภูมิภาค
-    const provinceRegionMap: Record<string, string> = {};
-    (provinces as ProvinceRegion[]).forEach((p) => {
-      provinceRegionMap[String(p.ProvinceNameThai || "").trim()] =
-        String(p.Region_VaccineRollout_MOPH || "").trim();
-    });
-
-    // 🔄 Group by region
-    const regionData: Record<string, { patients: number; deaths: number }> = {};
-
-    for (const r of rows as any[]) {
-      const provName = String(r.province || "").trim();
-      const region = provinceRegionMap[provName] || "ไม่ทราบภูมิภาค";
-
-      if (!regionData[region]) regionData[region] = { patients: 0, deaths: 0 };
-      regionData[region].patients += Number(r.patients ?? 0);
-      regionData[region].deaths += Number(r.deaths ?? 0);
-    }
-
-    const result = Object.keys(regionData).map((region) => ({
-      region,
-      patients: regionData[region].patients,
-      deaths: regionData[region].deaths,
-=======
     const sp = request.nextUrl.searchParams;
     const startDate = parseDateOrFallback(sp.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(sp.get("end_date"), "2024-12-31");
@@ -207,24 +89,17 @@ export async function GET(request: NextRequest) {
       region: String(r?.region ?? "").trim(),
       patients: Number(r?.patients ?? 0),
       deaths: Number(r?.deaths ?? 0),
->>>>>>> feature/Method_F&Method_G
     }));
 
     return NextResponse.json(data, {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
-<<<<<<< HEAD
-  } catch (error) {
-    console.error("❌ API ERROR (region):", error);
-    return NextResponse.json([], { status: 200 });
-=======
   } catch (err: unknown) {
     console.error("api error /api/dashBoard/region", err);
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "internal server error" },
       { status: 500 }
     );
->>>>>>> feature/Method_F&Method_G
   }
 }

@@ -1,10 +1,9 @@
-import { Suspense } from "react";
 import EditProfilePage from "@/app/features/main/editprofilePage/index";
-
-export default function EditProfile() {
+const editprofile = () => {
   return (
-    <Suspense fallback={null}>
+    <div>
       <EditProfilePage />
-    </Suspense>
+    </div>
   );
-}
+};
+export default editprofile;

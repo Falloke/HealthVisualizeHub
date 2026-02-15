@@ -1,3 +1,4 @@
+// app/features/admin/diseasesPage/component/DiseaseEditor.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -26,48 +27,9 @@ type Props = {
   code?: string;
 };
 
-type ImportErrorItem = { line: number; message: string };
-type ImportResp =
-  | {
-      ok: true;
-      inserted: number;
-      skipped: number;
-      totalRows: number;
-      warnings?: string[];
-    }
-  | {
-      ok: false;
-      error: string;
-      errors?: ImportErrorItem[];
-      detail?: string;
-    };
-
-function slugifyAscii(input: string) {
-  const s = (input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 24);
-  return s || "data";
-}
-
-function suggestTableName(diseaseCode: string | null, d?: Disease | null) {
-  // D03 -> d03_<name>
-  const num = (diseaseCode || "").trim().toUpperCase().replace(/^D/, "");
-  const nn = /^\d+$/.test(num) ? String(num).padStart(2, "0") : "00";
-  const base = slugifyAscii(d?.name_en || d?.name_th || "data");
-  return `d${nn}_${base}`;
-}
-
-/** ✅ บอก Sidebar ให้รีโหลดรายการโรคทันที */
-function emitRefreshDiseases() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event("hhub:diseases:refresh"));
-}
-
 export default function DiseaseEditor({ code }: Props) {
   /* ------------------------------------------------------------------
-   * 1) รายการโรคทั้งหมด + โรคที่เลือกอยู่ (สำหรับแก้ไขรายละเอียด)
+   * 1) รายการโรคทั้งหมด + โรคที่เลือกอยู่
    * ------------------------------------------------------------------ */
 
   const [diseases, setDiseases] = useState<Disease[]>([]);
@@ -79,56 +41,6 @@ export default function DiseaseEditor({ code }: Props) {
     () => diseases.find((d) => d.code === currentCode) ?? null,
     [diseases, currentCode]
   );
-
-  /* ------------------------------------------------------------------
-   * ✅ โหมด "สร้าง table public" (แยกจาก currentCode)
-   * ------------------------------------------------------------------ */
-
-  const [publicTargetCode, setPublicTargetCode] = useState<string | null>(null);
-  const publicTargetDisease = useMemo(
-    () => diseases.find((d) => d.code === publicTargetCode) ?? null,
-    [diseases, publicTargetCode]
-  );
-
-  /* ------------------------------------------------------------------
-   * ✅ โหมด Import CSV (เลือกโรค + table ปลายทาง)
-   * ------------------------------------------------------------------ */
-
-  const [importTargetCode, setImportTargetCode] = useState<string | null>(null);
-  const importTargetDisease = useMemo(
-    () => diseases.find((d) => d.code === importTargetCode) ?? null,
-    [diseases, importTargetCode]
-  );
-
-  const [importTableName, setImportTableName] = useState<string>("");
-
-  // ตั้งค่า default importTargetCode
-  useEffect(() => {
-    if (!diseases.length) return;
-
-    setImportTargetCode((prev) => {
-      if (prev && diseases.some((d) => d.code === prev)) return prev;
-      const preferred = code ? diseases.find((d) => d.code === code) : null;
-      return preferred?.code ?? diseases[0].code;
-    });
-  }, [diseases, code]);
-
-  // auto-suggest importTableName เมื่อเลือกโรค import
-  useEffect(() => {
-    if (!importTargetCode) {
-      setImportTableName("");
-      return;
-    }
-    setImportTableName((prev) => {
-      const suggested = suggestTableName(importTargetCode, importTargetDisease);
-      if (!prev) return suggested;
-
-      const looksAuto =
-        prev.startsWith("d") && prev.includes("_") && prev.length <= 40;
-
-      return looksAuto ? suggested : prev;
-    });
-  }, [importTargetCode, importTargetDisease]);
 
   /* ------------------------------------------------------------------
    * 2) ข้อมูลชื่อโรค (meta: name_th / name_en)
@@ -163,7 +75,7 @@ export default function DiseaseEditor({ code }: Props) {
   const [detailErr, setDetailErr] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------
-   * 4) อาการโรค
+   * 4) อาการโรค (ตาราง symptoms + disease_symptoms)
    * ------------------------------------------------------------------ */
 
   const [symOptions, setSymOptions] = useState<SymptomOption[]>([]);
@@ -172,13 +84,14 @@ export default function DiseaseEditor({ code }: Props) {
   const [symSaving, setSymSaving] = useState(false);
   const [symErr, setSymErr] = useState<string | null>(null);
 
+  // master อาการ: สร้างอาการใหม่
   const [symMasterName, setSymMasterName] = useState("");
   const [symMasterSaving, setSymMasterSaving] = useState(false);
   const [symMasterErr, setSymMasterErr] = useState<string | null>(null);
   const [symMasterOk, setSymMasterOk] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------
-   * 5) วิธีป้องกัน
+   * 5) วิธีป้องกัน (ตาราง preventions + disease_preventions)
    * ------------------------------------------------------------------ */
 
   const [prevOptions, setPrevOptions] = useState<PreventionOption[]>([]);
@@ -187,217 +100,28 @@ export default function DiseaseEditor({ code }: Props) {
   const [prevSaving, setPrevSaving] = useState(false);
   const [prevErr, setPrevErr] = useState<string | null>(null);
 
+  // master วิธีป้องกัน: สร้างวิธีป้องกันใหม่
   const [prevMasterName, setPrevMasterName] = useState("");
   const [prevMasterSaving, setPrevMasterSaving] = useState(false);
   const [prevMasterErr, setPrevMasterErr] = useState<string | null>(null);
   const [prevMasterOk, setPrevMasterOk] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------
-   * 6) ✅ สร้างโรคใหม่ (สร้างเฉพาะ diseases)
+   * 6) สร้างโรคใหม่
    * ------------------------------------------------------------------ */
 
   const [newCode, setNewCode] = useState("");
   const [newNameTH, setNewNameTH] = useState("");
   const [newNameEN, setNewNameEN] = useState("");
-
   const [createSaving, setCreateSaving] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
   const [createOk, setCreateOk] = useState<string | null>(null);
-
-  /* ------------------------------------------------------------------
-   * 7) IMPORT CSV -> dynamic tableName
-   * ------------------------------------------------------------------ */
-
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [importOk, setImportOk] = useState<string | null>(null);
-  const [importErr, setImportErr] = useState<string | null>(null);
-  const [importErrors, setImportErrors] = useState<ImportErrorItem[]>([]);
-
-  async function doImportCSV() {
-    if (!importFile) return;
-
-    if (!importTargetCode) {
-      setImportErr("กรุณาเลือกรหัสโรคที่จะ Import");
-      return;
-    }
-    if (!importTableName.trim()) {
-      setImportErr("กรุณาระบุชื่อ Table ปลายทาง");
-      return;
-    }
-
-    setImporting(true);
-    setImportOk(null);
-    setImportErr(null);
-    setImportErrors([]);
-
-    try {
-      const fd = new FormData();
-      fd.append("file", importFile);
-      fd.append("skipBadRows", "true");
-
-      // ✅ ส่งข้อมูลสำคัญไป backend
-      fd.append("diseaseCode", importTargetCode);
-      fd.append("tableName", importTableName.trim());
-
-      const res = await fetch("/api/admin/d02-test/import", {
-        method: "POST",
-        body: fd,
-      });
-
-      const json = (await res.json().catch(() => null)) as ImportResp | null;
-
-      if (!res.ok || !json) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(txt || `HTTP ${res.status}`);
-      }
-
-      if (json.ok) {
-        const warnText =
-          json.warnings && json.warnings.length
-            ? `\n${json.warnings.join("\n")}`
-            : "";
-
-        setImportOk(
-          `Import สำเร็จ: เพิ่ม ${json.inserted.toLocaleString()} แถว (ข้าม ${json.skipped.toLocaleString()} แถว) จากทั้งหมด ${json.totalRows.toLocaleString()} แถว${warnText}`
-        );
-        setImportErr(null);
-        setImportErrors([]);
-      } else {
-        setImportOk(null);
-        setImportErr(json.error || "Import ไม่สำเร็จ");
-        setImportErrors(json.errors ?? []);
-      }
-    } catch (e) {
-      setImportOk(null);
-      setImportErr(getErrorMessage(e) || "Import ไม่สำเร็จ");
-      setImportErrors([]);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  /* ------------------------------------------------------------------
-   * 8) ✅ สร้างตารางข้อมูลโรค (public.dXX_…)
-   * ------------------------------------------------------------------ */
-
-  const [publicTableName, setPublicTableName] = useState("");
-  const [createTableSaving, setCreateTableSaving] = useState(false);
-  const [createTableErr, setCreateTableErr] = useState<string | null>(null);
-  const [createTableOk, setCreateTableOk] = useState<string | null>(null);
-
-  // ✅ ตั้งค่าเริ่มต้น publicTargetCode / ชื่อ table อัตโนมัติ
-  useEffect(() => {
-    if (!diseases.length) return;
-
-    setPublicTargetCode((prev) => {
-      if (prev && diseases.some((d) => d.code === prev)) return prev;
-      const preferred = code ? diseases.find((d) => d.code === code) : null;
-      return preferred?.code ?? diseases[0].code;
-    });
-  }, [diseases, code]);
-
-  // ✅ อัปเดตชื่อ table อัตโนมัติเมื่อเปลี่ยน publicTargetCode
-  useEffect(() => {
-    setCreateTableErr(null);
-    setCreateTableOk(null);
-
-    if (!publicTargetCode) {
-      setPublicTableName("");
-      return;
-    }
-
-    setPublicTableName((prev) => {
-      const suggested = suggestTableName(publicTargetCode, publicTargetDisease);
-      if (!prev) return suggested;
-
-      const looksAuto =
-        prev.startsWith("d") && prev.includes("_") && prev.length <= 40;
-      return looksAuto ? suggested : prev;
-    });
-  }, [publicTargetCode, publicTargetDisease]);
-
-  async function createDiseaseTableByCode(targetCode: string, name: string) {
-    const tname = (name || "").trim().toLowerCase();
-    if (!tname) throw new Error("กรุณาระบุชื่อ table เช่น d03_influenza");
-
-    const res = await fetch("/api/admin/disease-tables/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tableName: tname,
-        createDefaultPartition: false,
-        diseaseCode: targetCode,
-      }),
-    });
-
-    const txt = await res.text().catch(() => "");
-    if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
-
-    const j = JSON.parse(txt) as {
-      ok: boolean;
-      table?: string;
-      createdDefaultPartition?: boolean;
-      diseaseInserted?: string | null;
-    };
-
-    return j;
-  }
-
-  async function createPublicDiseaseTable() {
-    setCreateTableErr(null);
-    setCreateTableOk(null);
-
-    if (!publicTargetCode) {
-      setCreateTableErr("กรุณาเลือกรหัสโรคที่จะสร้างตารางลง public");
-      return;
-    }
-
-    const name = (publicTableName || "").trim().toLowerCase();
-    if (!name) {
-      setCreateTableErr("กรุณาระบุชื่อ table เช่น d03_influenza");
-      return;
-    }
-
-    setCreateTableSaving(true);
-    try {
-      const j = await createDiseaseTableByCode(publicTargetCode, name);
-      setCreateTableOk(
-        `✅ สร้างตารางสำเร็จ: ${j.table ?? `public.${name}`}`
-      );
-
-      emitRefreshDiseases();
-      await loadDiseases(true);
-    } catch (e) {
-      setCreateTableErr(getErrorMessage(e) || "สร้างตารางไม่สำเร็จ");
-      console.error(
-        "[DiseaseEditor] createPublicDiseaseTable:",
-        getErrorMessage(e)
-      );
-    } finally {
-      setCreateTableSaving(false);
-    }
-  }
-
-  /* ===========================
-   * Theme (ฟ้า)
-   * =========================== */
-  const inputBase =
-    "w-full rounded border px-3 py-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
-  const selectBase =
-    "w-full rounded border px-3 py-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
-  const textareaBase =
-    "w-full rounded border p-2 text-sm bg-white outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
-  const primaryBtn =
-    "rounded bg-sky-600 px-4 py-2 text-sm text-white hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60";
-  const dangerBtn =
-    "rounded bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-200 disabled:opacity-60";
 
   /* ============================================================
    * โหลด list โรค
    * ============================================================ */
 
-  async function loadDiseases(keepCurrent = false) {
+  async function loadDiseases() {
     setListLoading(true);
     setListErr(null);
     try {
@@ -414,13 +138,8 @@ export default function DiseaseEditor({ code }: Props) {
         setCurrentCode(null);
         return;
       }
-
-      setCurrentCode((prev) => {
-        if (keepCurrent && prev && items.some((d) => d.code === prev))
-          return prev;
-        const preferred = code ? items.find((d) => d.code === code) : null;
-        return preferred?.code ?? items[0].code;
-      });
+      const found = code ? items.find((d) => d.code === code) : items[0];
+      setCurrentCode((prev) => prev ?? found?.code ?? items[0].code);
     } catch (e) {
       setListErr("โหลดรายการโรคไม่สำเร็จ");
       console.error("[DiseaseEditor] loadDiseases:", getErrorMessage(e));
@@ -430,14 +149,7 @@ export default function DiseaseEditor({ code }: Props) {
   }
 
   useEffect(() => {
-    void loadDiseases(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const handler = () => void loadDiseases(true);
-    window.addEventListener("hhub:diseases:refresh", handler);
-    return () => window.removeEventListener("hhub:diseases:refresh", handler);
+    void loadDiseases();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -448,6 +160,7 @@ export default function DiseaseEditor({ code }: Props) {
   useEffect(() => {
     if (!currentCode) return;
 
+    // รายละเอียดโรค
     (async () => {
       setDetailLoading(true);
       setDetailErr(null);
@@ -460,6 +173,8 @@ export default function DiseaseEditor({ code }: Props) {
         const j = await res.json();
         setDetailTH(j.description_th ?? "");
         setDetailEN(j.description_en ?? "");
+        // ✅ ถ้าโหลดสำเร็จ เคลียร์ error อีกรอบให้ชัวร์
+        setDetailErr(null);
       } catch (e) {
         setDetailErr("โหลดรายละเอียดโรคไม่สำเร็จ");
         console.error("[DiseaseEditor] load details:", getErrorMessage(e));
@@ -468,6 +183,7 @@ export default function DiseaseEditor({ code }: Props) {
       }
     })();
 
+    // อาการโรค + master symptoms
     (async () => {
       setSymLoading(true);
       setSymErr(null);
@@ -483,6 +199,8 @@ export default function DiseaseEditor({ code }: Props) {
         };
         setSymSelected(j.selected ?? []);
         setSymOptions(j.options ?? []);
+        // ✅ เคลียร์ error เมื่อโหลดสำเร็จ
+        setSymErr(null);
       } catch (e) {
         setSymErr("โหลดอาการโรคไม่สำเร็จ");
         console.error("[DiseaseEditor] load symptoms:", getErrorMessage(e));
@@ -491,6 +209,7 @@ export default function DiseaseEditor({ code }: Props) {
       }
     })();
 
+    // วิธีป้องกัน + master preventions
     (async () => {
       setPrevLoading(true);
       setPrevErr(null);
@@ -508,6 +227,8 @@ export default function DiseaseEditor({ code }: Props) {
         };
         setPrevSelected((j.selected ?? []).map((x) => x.id));
         setPrevOptions(j.options ?? []);
+        // ✅ เคลียร์ error เมื่อโหลด สำเร็จ
+        setPrevErr(null);
       } catch (e) {
         setPrevErr("โหลดวิธีป้องกันไม่สำเร็จ");
         console.error("[DiseaseEditor] load preventions:", getErrorMessage(e));
@@ -551,8 +272,6 @@ export default function DiseaseEditor({ code }: Props) {
             : d
         )
       );
-
-      emitRefreshDiseases();
     } catch (e) {
       setMetaErr("บันทึกชื่อโรคไม่สำเร็จ");
       console.error("[DiseaseEditor] saveMeta:", getErrorMessage(e));
@@ -562,26 +281,23 @@ export default function DiseaseEditor({ code }: Props) {
   }
 
   /* ============================================================
-   * ✅ สร้างโรคใหม่ (สร้างเฉพาะ diseases ก่อน)
+   * สร้างโรคใหม่
    * ============================================================ */
 
   async function createDisease() {
     setCreateErr(null);
     setCreateOk(null);
-
-    const codeTrim = newCode.trim();
-    if (!codeTrim) {
+    if (!newCode.trim()) {
       setCreateErr("กรุณาระบุรหัสโรค");
       return;
     }
-
     setCreateSaving(true);
     try {
       const res = await fetch("/api/admin/diseases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: codeTrim,
+          code: newCode.trim(),
           name_th: newNameTH,
           name_en: newNameEN,
         }),
@@ -590,16 +306,12 @@ export default function DiseaseEditor({ code }: Props) {
       if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
 
       const created = JSON.parse(txt) as Disease;
-
+      setCreateOk(`สร้างโรค ${created.code} สำเร็จ`);
       setNewCode("");
       setNewNameTH("");
       setNewNameEN("");
-
-      await loadDiseases(true);
+      await loadDiseases();
       setCurrentCode(created.code);
-
-      emitRefreshDiseases();
-      setCreateOk(`✅ สร้างโรค ${created.code} สำเร็จ (ยังไม่สร้าง table public)`);
     } catch (e) {
       setCreateErr(getErrorMessage(e) || "สร้างโรคไม่สำเร็จ");
       console.error("[DiseaseEditor] createDisease:", getErrorMessage(e));
@@ -629,13 +341,11 @@ export default function DiseaseEditor({ code }: Props) {
       const txt = await res.text().catch(() => "");
       if (!res.ok) throw new Error(txt || `HTTP ${res.status}`);
 
-      await loadDiseases(false);
+      await loadDiseases();
       setDetailTH("");
       setDetailEN("");
       setSymSelected([]);
       setPrevSelected([]);
-
-      emitRefreshDiseases();
     } catch (e) {
       alert("ลบโรคไม่สำเร็จ");
       console.error("[DiseaseEditor] deleteCurrent:", getErrorMessage(e));
@@ -674,7 +384,7 @@ export default function DiseaseEditor({ code }: Props) {
   }
 
   /* ============================================================
-   * อาการโรค
+   * อาการโรค: checkbox + ลำดับสวย ๆ + ลบ master
    * ============================================================ */
 
   function toggleSymptom(id: number) {
@@ -756,7 +466,7 @@ export default function DiseaseEditor({ code }: Props) {
   }
 
   /* ============================================================
-   * วิธีป้องกัน
+   * วิธีป้องกัน: checkbox + ลำดับสวย ๆ + ลบ master
    * ============================================================ */
 
   function togglePrevention(id: number) {
@@ -771,7 +481,9 @@ export default function DiseaseEditor({ code }: Props) {
     setPrevErr(null);
     try {
       const res = await fetch(
-        `/api/admin/diseases/preventions?code=${encodeURIComponent(currentCode)}`,
+        `/api/admin/diseases/preventions?code=${encodeURIComponent(
+          currentCode
+        )}`,
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -852,14 +564,17 @@ export default function DiseaseEditor({ code }: Props) {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-sky-800">จัดการข้อมูลโรค</h2>
+          <h2 className="text-xl font-semibold">จัดการข้อมูลโรค</h2>
+          <p className="text-xs text-gray-500">
+            เลือกรหัสโรคด้านล่างเพื่อแก้ไขรายละเอียด อาการ และวิธีป้องกัน
+          </p>
         </div>
 
         <button
           type="button"
           onClick={deleteCurrent}
           disabled={!currentCode}
-          className={dangerBtn}
+          className="self-start rounded bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60"
         >
           ลบโรคนี้
         </button>
@@ -868,35 +583,30 @@ export default function DiseaseEditor({ code }: Props) {
       {/* เลือกโรค */}
       <section className="rounded border bg-white p-4">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <span className="text-sm font-medium text-gray-700">เลือกโรค:</span>
-            <div className="w-full sm:w-[320px]">
-              <select
-                className={selectBase}
-                value={currentCode ?? ""}
-                onChange={(e) => setCurrentCode(e.target.value || null)}
-              >
-                {!currentCode && <option value="">— เลือกโรค —</option>}
-                {diseases.map((d) => (
-                  <option key={d.code} value={d.code}>
-                    {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">เลือกโรค:</span>
+            <select
+              className="min-w-[220px] rounded border px-2 py-1 text-sm"
+              value={currentCode ?? ""}
+              onChange={(e) => setCurrentCode(e.target.value || null)}
+            >
+              {!currentCode && <option value="">— เลือกโรค —</option>}
+              {diseases.map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
+                </option>
+              ))}
+            </select>
           </div>
-
           {listLoading && (
             <span className="text-xs text-gray-500">กำลังโหลดรายการโรค…</span>
           )}
         </div>
-
         {listErr && (
           <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
             {listErr}
           </div>
         )}
-
         {!diseases.length && !listLoading && (
           <div className="text-sm text-gray-500">
             ยังไม่มีรหัสโรค ให้สร้างรหัสใหม่ด้านล่าง
@@ -906,9 +616,7 @@ export default function DiseaseEditor({ code }: Props) {
 
       {/* เมตา: ชื่อโรค */}
       <section className="rounded border bg-white p-4">
-        <h3 className="mb-3 font-semibold text-sky-800">
-          ข้อมูลโรค (ชื่อภาษาไทย/อังกฤษ)
-        </h3>
+        <h3 className="mb-3 font-semibold">ข้อมูลโรค (ชื่อภาษาไทย/อังกฤษ)</h3>
 
         {!currentCode ? (
           <div className="text-sm text-gray-500">
@@ -929,22 +637,22 @@ export default function DiseaseEditor({ code }: Props) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
+                <label className="mb-1 block text-sm font-medium">
                   ชื่อโรค (ภาษาไทย)
                 </label>
                 <input
-                  className={inputBase}
+                  className="w-full rounded border px-3 py-2 text-sm"
                   value={metaNameTH}
                   onChange={(e) => setMetaNameTH(e.target.value)}
                   placeholder="เช่น ไข้หวัดใหญ่"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
+                <label className="mb-1 block text-sm font-medium">
                   ชื่อโรค (ภาษาอังกฤษ)
                 </label>
                 <input
-                  className={inputBase}
+                  className="w-full rounded border px-3 py-2 text-sm"
                   value={metaNameEN}
                   onChange={(e) => setMetaNameEN(e.target.value)}
                   placeholder="เช่น Influenza"
@@ -956,7 +664,7 @@ export default function DiseaseEditor({ code }: Props) {
               type="button"
               onClick={saveMeta}
               disabled={metaSaving || !currentCode}
-              className={primaryBtn}
+              className="rounded bg-pink-600 px-4 py-2 text-sm text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {metaSaving ? "กำลังบันทึก…" : "บันทึกชื่อโรค"}
             </button>
@@ -966,7 +674,7 @@ export default function DiseaseEditor({ code }: Props) {
 
       {/* รายละเอียดโรค */}
       <section className="rounded border bg-white p-4">
-        <h3 className="mb-3 font-semibold text-sky-800">รายละเอียดโรค</h3>
+        <h3 className="mb-3 font-semibold">รายละเอียดโรค</h3>
 
         {!currentCode ? (
           <div className="text-sm text-gray-500">
@@ -985,11 +693,11 @@ export default function DiseaseEditor({ code }: Props) {
             )}
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium">
                 รายละเอียด (ภาษาไทย)
               </label>
               <textarea
-                className={textareaBase}
+                className="w-full rounded border p-2 text-sm"
                 rows={4}
                 value={detailTH}
                 onChange={(e) => setDetailTH(e.target.value)}
@@ -997,11 +705,11 @@ export default function DiseaseEditor({ code }: Props) {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium">
                 รายละเอียด (ภาษาอังกฤษ)
               </label>
               <textarea
-                className={textareaBase}
+                className="w-full rounded border p-2 text-sm"
                 rows={4}
                 value={detailEN}
                 onChange={(e) => setDetailEN(e.target.value)}
@@ -1012,7 +720,7 @@ export default function DiseaseEditor({ code }: Props) {
               type="button"
               onClick={saveDetails}
               disabled={detailSaving || !currentCode}
-              className={primaryBtn}
+              className="rounded bg-pink-600 px-4 py-2 text-sm text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {detailSaving ? "กำลังบันทึก…" : "บันทึกรายละเอียด"}
             </button>
@@ -1023,7 +731,7 @@ export default function DiseaseEditor({ code }: Props) {
       {/* --------- อาการโรค --------- */}
       <section className="rounded border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold text-sky-800">อาการโรค</h3>
+          <h3 className="font-semibold">อาการโรค</h3>
           {symLoading && (
             <span className="text-xs text-gray-500">กำลังโหลด…</span>
           )}
@@ -1045,6 +753,9 @@ export default function DiseaseEditor({ code }: Props) {
           </div>
         ) : (
           <>
+            <p className="mb-2 text-xs text-gray-500">
+              ติ๊กเลือกอาการที่เกี่ยวข้องกับโรคนี้
+            </p>
             <div className="mb-3 max-h-64 space-y-1 overflow-y-auto rounded border p-2">
               {symOptions.map((s, index) => (
                 <div
@@ -1054,12 +765,14 @@ export default function DiseaseEditor({ code }: Props) {
                   <label className="flex flex-1 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 accent-sky-600"
+                      className="h-4 w-4"
                       checked={symSelected.includes(s.id)}
                       onChange={() => toggleSymptom(s.id)}
                     />
                     <span>
                       {index + 1}. {s.name_th}
+                      {/* ถ้าอยากโชว์ id จริงเพิ่ม ก็ uncomment บรรทัดด้านล่างได้ */}
+                      {/* <span className="ml-1 text-[10px] text-gray-400">(id {s.id})</span> */}
                     </span>
                   </label>
                   <button
@@ -1076,16 +789,17 @@ export default function DiseaseEditor({ code }: Props) {
             <button
               type="button"
               onClick={saveSymptoms}
-              disabled={symSaving || !currentCode}
-              className={primaryBtn}
+              disabled={symSaving}
+              className="rounded bg-pink-600 px-4 py-2 text-sm text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {symSaving ? "กำลังบันทึก…" : "บันทึกอาการ"}
             </button>
           </>
         )}
 
+        {/* สร้างอาการใหม่ */}
         <div className="mt-6 border-t pt-4">
-          <h4 className="mb-2 text-sm font-semibold text-sky-800">
+          <h4 className="mb-2 text-sm font-semibold">
             สร้างอาการใหม่ (เพิ่มในตาราง symptoms)
           </h4>
           {symMasterErr && (
@@ -1100,7 +814,7 @@ export default function DiseaseEditor({ code }: Props) {
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
-              className={inputBase}
+              className="w-full rounded border px-3 py-2 text-sm"
               placeholder="ชื่ออาการ (ภาษาไทย)"
               value={symMasterName}
               onChange={(e) => setSymMasterName(e.target.value)}
@@ -1109,18 +823,22 @@ export default function DiseaseEditor({ code }: Props) {
               type="button"
               onClick={createSymptomMaster}
               disabled={symMasterSaving}
-              className={`${primaryBtn} whitespace-nowrap`}
+              className="rounded bg-pink-600 px-4 py-2 text-sm whitespace-nowrap text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {symMasterSaving ? "กำลังสร้าง…" : "สร้างอาการใหม่"}
             </button>
           </div>
+          <p className="mt-1 text-xs text-gray-500">
+            ระบบจะกำหนดหมายเลข ID ให้อัตโนมัติ
+            และเลือกอาการที่สร้างให้โรคนี้ทันที
+          </p>
         </div>
       </section>
 
       {/* --------- วิธีป้องกัน --------- */}
       <section className="rounded border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold text-sky-800">วิธีป้องกัน</h3>
+          <h3 className="font-semibold">วิธีป้องกัน</h3>
           {prevLoading && (
             <span className="text-xs text-gray-500">กำลังโหลด…</span>
           )}
@@ -1142,6 +860,9 @@ export default function DiseaseEditor({ code }: Props) {
           </div>
         ) : (
           <>
+            <p className="mb-2 text-xs text-gray-500">
+              ติ๊กเลือกวิธีป้องกันที่เกี่ยวข้องกับโรคนี้
+            </p>
             <div className="mb-3 max-h-64 space-y-1 overflow-y-auto rounded border p-2">
               {prevOptions.map((p, index) => (
                 <div
@@ -1151,12 +872,13 @@ export default function DiseaseEditor({ code }: Props) {
                   <label className="flex flex-1 cursor-pointer items-center gap-2">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 accent-sky-600"
+                      className="h-4 w-4"
                       checked={prevSelected.includes(p.id)}
                       onChange={() => togglePrevention(p.id)}
                     />
                     <span>
                       {index + 1}. {p.name_th}
+                      {/* <span className="ml-1 text-[10px] text-gray-400">(id {p.id})</span> */}
                     </span>
                   </label>
                   <button
@@ -1174,15 +896,16 @@ export default function DiseaseEditor({ code }: Props) {
               type="button"
               onClick={savePreventions}
               disabled={prevSaving || !currentCode}
-              className={primaryBtn}
+              className="rounded bg-pink-600 px-4 py-2 text-sm text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {prevSaving ? "กำลังบันทึก…" : "บันทึกวิธีป้องกัน"}
             </button>
           </>
         )}
 
+        {/* สร้างวิธีป้องกันใหม่ */}
         <div className="mt-6 border-t pt-4">
-          <h4 className="mb-2 text-sm font-semibold text-sky-800">
+          <h4 className="mb-2 text-sm font-semibold">
             สร้างวิธีป้องกันใหม่ (เพิ่มในตาราง preventions)
           </h4>
           {prevMasterErr && (
@@ -1197,7 +920,7 @@ export default function DiseaseEditor({ code }: Props) {
           )}
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
-              className={inputBase}
+              className="w-full rounded border px-3 py-2 text-sm"
               placeholder="ชื่อวิธีป้องกัน (ภาษาไทย)"
               value={prevMasterName}
               onChange={(e) => setPrevMasterName(e.target.value)}
@@ -1206,19 +929,21 @@ export default function DiseaseEditor({ code }: Props) {
               type="button"
               onClick={createPreventionMaster}
               disabled={prevMasterSaving}
-              className={`${primaryBtn} whitespace-nowrap`}
+              className="rounded bg-pink-600 px-4 py-2 text-sm whitespace-nowrap text-white hover:bg-pink-700 disabled:opacity-60"
             >
               {prevMasterSaving ? "กำลังสร้าง…" : "สร้างวิธีป้องกันใหม่"}
             </button>
           </div>
+          <p className="mt-1 text-xs text-gray-500">
+            ระบบจะกำหนดหมายเลข ID ให้อัตโนมัติ
+            และเลือกวิธีป้องกันที่สร้างให้โรคนี้ทันที
+          </p>
         </div>
       </section>
 
-      {/* =========================================================
-          ✅ สร้างรหัสโรคใหม่ (สร้างเฉพาะ diseases ก่อน)
-         ========================================================= */}
+      {/* สร้างรหัสโรคใหม่ */}
       <section className="rounded border bg-white p-4">
-        <h3 className="mb-3 font-semibold text-sky-800">สร้างรหัสโรคใหม่</h3>
+        <h3 className="mb-3 font-semibold">สร้างรหัสโรคใหม่</h3>
 
         {createErr && (
           <div className="mb-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
@@ -1233,19 +958,19 @@ export default function DiseaseEditor({ code }: Props) {
 
         <div className="grid gap-2 sm:grid-cols-[130px,1fr,1fr,auto]">
           <input
-            className={inputBase}
+            className="w-full rounded border px-3 py-2 text-sm"
             placeholder="รหัส เช่น D10"
             value={newCode}
             onChange={(e) => setNewCode(e.target.value)}
           />
           <input
-            className={inputBase}
+            className="w-full rounded border px-3 py-2 text-sm"
             placeholder="ชื่อไทย (ถ้ามี)"
             value={newNameTH}
             onChange={(e) => setNewNameTH(e.target.value)}
           />
           <input
-            className={inputBase}
+            className="w-full rounded border px-3 py-2 text-sm"
             placeholder="ชื่ออังกฤษ (ถ้ามี)"
             value={newNameEN}
             onChange={(e) => setNewNameEN(e.target.value)}
@@ -1254,290 +979,15 @@ export default function DiseaseEditor({ code }: Props) {
             type="button"
             onClick={createDisease}
             disabled={createSaving || !newCode.trim()}
-            className={`${primaryBtn} mt-1 sm:mt-0`}
+            className="mt-1 rounded bg-pink-600 px-4 py-2 text-sm text-white hover:bg-pink-700 disabled:opacity-60 sm:mt-0"
           >
             {createSaving ? "กำลังสร้าง…" : "สร้างโรคใหม่"}
           </button>
         </div>
-      </section>
-
-      {/* =========================================================
-          ✅ สร้างตารางข้อมูลโรค (public) แบบ Dropdown เลือกรหัสโรค
-         ========================================================= */}
-      <section className="rounded border bg-white p-4">
-        <h3 className="mb-2 font-semibold text-sky-800">
-          สร้างตารางข้อมูลโรค (public)
-        </h3>
-        {createTableErr && (
-          <div className="mb-2 rounded-md bg-red-50 p-3 text-sm text-red-600">
-            {createTableErr}
-          </div>
-        )}
-        {createTableOk && (
-          <div className="mb-2 rounded-md bg-green-50 p-3 text-sm text-green-700">
-            {createTableOk}
-          </div>
-        )}
-
-        <div className="grid gap-3 sm:grid-cols-[260px,1fr,auto] sm:items-end">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              เลือกรหัสโรคที่จะสร้างตาราง
-            </label>
-            <select
-              className={selectBase}
-              value={publicTargetCode ?? ""}
-              onChange={(e) => setPublicTargetCode(e.target.value || null)}
-            >
-              {!publicTargetCode && <option value="">— เลือกรหัสโรค —</option>}
-              {diseases.map((d) => (
-                <option key={d.code} value={d.code}>
-                  {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              ชื่อ table (แนะนำอัตโนมัติ)
-            </label>
-            <input
-              className={inputBase}
-              value={publicTableName}
-              onChange={(e) => setPublicTableName(e.target.value)}
-              placeholder="เช่น d02_dengue_fever"
-            />
-            <div className="mt-1 text-xs text-gray-500">
-              แนะนำ:{" "}
-              <span className="font-medium text-sky-700">
-                {publicTargetCode
-                  ? suggestTableName(publicTargetCode, publicTargetDisease)
-                  : "-"}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={createPublicDiseaseTable}
-            disabled={
-              createTableSaving || !publicTargetCode || !publicTableName.trim()
-            }
-            className={`${primaryBtn} w-full sm:w-auto`}
-          >
-            {createTableSaving ? "กำลังสร้าง…" : "สร้างตาราง"}
-          </button>
-        </div>
-      </section>
-
-      {/* ===================== Import CSV ===================== */}
-      <section className="rounded-xl border bg-white p-4">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-sky-800">
-              นำเข้าข้อมูลรูปแบบ CSV
-            </h3>
-            <p className="text-gray-500 text-md">
-              (เลือกโรค และ ตารางที่ต้องการนำเข้า)
-            </p>
-          </div>
-
-          {/* ✅ Badge สถานะพร้อม import */}
-          <div className="mt-2 sm:mt-0">
-            {importTargetCode && importTableName.trim() && importFile ? (
-              <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                พร้อมนำเข้า ✅
-              </span>
-            ) : (
-              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
-                ยังไม่พร้อมนำเข้า
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* ✅ เลือกรหัสโรค + Table */}
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {/* เลือกรหัสโรค */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              รหัสโรคที่จะ Import
-            </label>
-            <select
-              className={selectBase}
-              value={importTargetCode ?? ""}
-              onChange={(e) => {
-                setImportOk(null);
-                setImportErr(null);
-                setImportErrors([]);
-                setImportTargetCode(e.target.value || null);
-              }}
-            >
-              {!importTargetCode && (
-                <option value="">— เลือกรหัสโรค —</option>
-              )}
-              {diseases.map((d) => (
-                <option key={d.code} value={d.code}>
-                  {d.code} — {d.name_th || d.name_en || "(ยังไม่ได้ตั้งชื่อ)"}
-                </option>
-              ))}
-            </select>
-
-            <p className="mt-1 text-xs text-gray-500">
-              {importTargetCode
-                ? `เลือกแล้ว: ${importTargetCode}`
-                : "กรุณาเลือกรหัสโรคก่อน"}
-            </p>
-          </div>
-
-          {/* table ปลายทาง */}
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              ตารางที่ต้องการนำเข้า
-            </label>
-
-            <div className="flex gap-2">
-              <input
-                className={inputBase}
-                value={importTableName}
-                onChange={(e) => {
-                  setImportOk(null);
-                  setImportErr(null);
-                  setImportErrors([]);
-                  setImportTableName(e.target.value);
-                }}
-                placeholder="เช่น d01_influenza"
-              />
-
-              {/* ✅ ปุ่มเติมชื่อแนะนำ */}
-              <button
-                type="button"
-                className="whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-60"
-                disabled={!importTargetCode}
-                onClick={() => {
-                  if (!importTargetCode) return;
-                  setImportTableName(
-                    suggestTableName(importTargetCode, importTargetDisease)
-                  );
-                }}
-                title="ใช้ชื่อแนะนำอัตโนมัติ"
-              >
-                ใช้ชื่อแนะนำ
-              </button>
-            </div>
-
-            <div className="mt-1 text-xs text-gray-500">
-              แนะนำ:{" "}
-              <span className="font-medium text-sky-700">
-                {importTargetCode
-                  ? suggestTableName(importTargetCode, importTargetDisease)
-                  : "-"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ✅ เลือกไฟล์ + ปุ่ม Import */}
-        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,auto] sm:items-end">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              เลือกไฟล์ .csv
-            </label>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="block w-full rounded-lg border p-2 text-sm"
-                onChange={(e) => {
-                  setImportOk(null);
-                  setImportErr(null);
-                  setImportErrors([]);
-                  const f = e.target.files?.[0] ?? null;
-                  setImportFile(f);
-                }}
-              />
-
-              {/* ✅ ปุ่มล้างไฟล์ */}
-              <button
-                type="button"
-                className="rounded-lg border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                disabled={!importFile || importing}
-                onClick={() => {
-                  setImportFile(null);
-                  setImportOk(null);
-                  setImportErr(null);
-                  setImportErrors([]);
-                }}
-              >
-                ล้างไฟล์
-              </button>
-            </div>
-
-            {importFile && (
-              <div className="mt-1 text-xs text-gray-500">
-                ไฟล์: <span className="font-medium">{importFile.name}</span> (
-                {(importFile.size / 1024 / 1024).toFixed(2)} MB)
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            className={primaryBtn}
-            disabled={
-              !importFile ||
-              importing ||
-              !importTargetCode ||
-              !importTableName.trim()
-            }
-            onClick={doImportCSV}
-          >
-            {importing ? "กำลัง Import…" : "Import CSV"}
-          </button>
-        </div>
-
-        {/* ✅ result messages */}
-        {importOk && (
-          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            ✅ {importOk}
-          </div>
-        )}
-
-        {importErr && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            ❌ {importErr}
-          </div>
-        )}
-
-        {/* ✅ error list แบบอ่านง่าย */}
-        {importErrors.length > 0 && (
-          <div className="mt-4 rounded-lg border bg-gray-50 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-700">
-                รายการ error (แสดงสูงสุด 30 รายการ)
-              </div>
-              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-700">
-                {Math.min(importErrors.length, 30)}/{importErrors.length}
-              </span>
-            </div>
-
-            <div className="max-h-64 space-y-2 overflow-auto pr-1">
-              {importErrors.slice(0, 30).map((er, idx) => (
-                <div
-                  key={`${er.line}-${idx}`}
-                  className="rounded-md border bg-white p-2 text-xs text-gray-700"
-                >
-                  <span className="font-semibold text-red-600">
-                    บรรทัด {er.line}:
-                  </span>{" "}
-                  {er.message}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <p className="mt-1 text-xs text-gray-500">
+          สามารถสร้างโรคใหม่ล่วงหน้าได้ แล้วกลับมาใส่รายละเอียด / อาการ /
+          วิธีป้องกันภายหลังได้
+        </p>
       </section>
     </div>
   );

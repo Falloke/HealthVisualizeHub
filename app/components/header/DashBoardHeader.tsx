@@ -54,7 +54,7 @@ const DashboardHeader = () => {
         </h1>
 
         {(hasStart || hasEnd) && (
-          <p className="text-base mt-2 md:text-lg text-gray-700">
+          <p className="mt-2 text-sm text-gray-700 sm:text-base">
             ช่วงวันที่{" "}
             <span className="font-semibold text-gray-900">{rangeText}</span>
           </p>

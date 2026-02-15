@@ -1,4 +1,3 @@
-// D:\HealtRiskHub\app\components\sidebar\SideBar.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,8 +21,7 @@ type Disease = {
 type SavedSearch = {
   id: number;
   searchName: string;
-  diseaseName: string; // บางทีเป็น code หรือชื่อ
-  diseaseCode?: string; // ✅ เผื่อ API ส่งมา
+  diseaseName: string;
   province: string;
   provinceAlt: string;
   startDate: string;
@@ -33,16 +31,13 @@ type SavedSearch = {
 };
 
 function groupProvinces(provinces: Province[]): Record<string, Province[]> {
-  return (provinces ?? []).reduce<Record<string, Province[]>>((acc, p) => {
+  return provinces.reduce<Record<string, Province[]>>((acc, p) => {
     const region = p.Region_VaccineRollout_MOPH || "อื่น ๆ";
     if (!acc[region]) acc[region] = [];
     acc[region].push(p);
     return acc;
   }, {});
 }
-
-const DEFAULT_DISEASE_CODE = "D01";
-const DEFAULT_DISEASE_NAME_TH = "ไข้หวัดใหญ่";
 
 const BASE_REGION = "กรุงเทพมหานครและปริมณฑล";
 const BASE_LABEL = `──────── ${BASE_REGION} ────────`;
@@ -58,15 +53,6 @@ function makeRegionLabel(region: string): string {
   const right = dashTotal - left;
 
   return `${"─".repeat(left)}${inner}${"─".repeat(right)}`;
-}
-
-// ✅ helper: เอา diseaseName/diseaseCode มาเดา “code” ให้ได้
-function extractDiseaseCode(raw?: string) {
-  const s = String(raw ?? "").trim();
-  if (/^D\d{2}$/i.test(s)) return s.toUpperCase();
-  const m = s.match(/\b(D\d{2})\b/i);
-  if (m?.[1]) return m[1].toUpperCase();
-  return "";
 }
 
 export default function Sidebar() {
@@ -123,113 +109,43 @@ function SidebarInner({
     setDisease,
   } = useDashboardStore();
 
-  const { mainProvince, compareProvince, setMainProvince, setCompareProvince } =
-    useCompareStore();
+  const {
+    mainProvince,
+    compareProvince,
+    setMainProvince,
+    setCompareProvince,
+  } = useCompareStore();
 
   const hasBothCompare = !!mainProvince && !!compareProvince;
 
-  // ✅ label ต้องโชว์ 2 จังหวัด ถ้ามี provinceAlt
   const labelOf = useCallback((s: SavedSearch) => {
-    const parts: string[] = [];
-
-    const name = String(s.searchName ?? "").trim();
-    if (name) parts.push(name);
-
-    const dz = String(s.diseaseName ?? s.diseaseCode ?? "").trim();
-    if (dz) parts.push(dz);
-
-    const p1 = String(s.province ?? "").trim();
-    const p2 = String(s.provinceAlt ?? "").trim();
-    if (p1 && p2) parts.push(`${p1} ↔ ${p2}`);
-    else if (p1) parts.push(p1);
-
+    const parts: string[] = [s.searchName];
+    if (s.diseaseName) parts.push(s.diseaseName);
+    const pv = (s.provinceAlt || s.province || "").trim();
+    if (pv) parts.push(pv);
     if (s.startDate && s.endDate) parts.push(`${s.startDate}→${s.endDate}`);
-
     return parts.join(" • ");
   }, []);
 
-  // ✅ applySavedSearch: ถ้ามี 2 จังหวัด -> ไป compareInfo
   const applySavedSearch = useCallback(
     (s: SavedSearch) => {
-      // 1) resolve disease code + name_th
-      const rawCode =
-        extractDiseaseCode(s.diseaseCode) || extractDiseaseCode(s.diseaseName);
+      const found = diseases.find(
+        (d) => d.name_th === s.diseaseName || d.code === s.diseaseName
+      );
+      if (found) setDisease(found.code, found.name_th);
+      else if (s.diseaseName) setDisease("", s.diseaseName);
 
-      const found =
-        (rawCode && diseases.find((d) => d.code === rawCode)) ||
-        diseases.find((d) => d.code === s.diseaseName) ||
-        diseases.find((d) => d.name_th === s.diseaseName);
+      const pv = (s.provinceAlt || s.province || "").trim();
+      if (pv) setProvince(pv);
 
-      const finalCode =
-        found?.code ||
-        rawCode ||
-        (s.diseaseName && /^D\d{2}$/i.test(s.diseaseName)
-          ? s.diseaseName.toUpperCase()
-          : DEFAULT_DISEASE_CODE);
-
-      const finalNameTh =
-        found?.name_th ||
-        (s.diseaseName && !/^D\d{2}$/i.test(s.diseaseName)
-          ? s.diseaseName
-          : DEFAULT_DISEASE_NAME_TH);
-
-      setDisease(finalCode, finalNameTh);
-
-      // 2) resolve provinces
-      const p1 = String(s.province ?? "").trim();
-      const p2 = String(s.provinceAlt ?? "").trim();
-      const hasCompare = !!p1 && !!p2;
-
-      // 3) set date
       setDateRange(s.startDate || "", s.endDate || "");
-
-      // 4) route
-      if (hasCompare) {
-        // ✅ sync ทั้ง compare store และ dashboard store
-        setMainProvince(p1);
-        setCompareProvince(p2);
-        setProvince(p1);
-
-        const q = new URLSearchParams({
-          province: p1,
-          province_alt: p2,
-          start_date: s.startDate || "",
-          end_date: s.endDate || "",
-          disease: finalCode,
-          color: s.color || "",
-        }).toString();
-
-        router.push(`/compareInfo?${q}`);
-      } else {
-        if (p1) setProvince(p1);
-
-        const q = new URLSearchParams({
-          province: p1,
-          start_date: s.startDate || "",
-          end_date: s.endDate || "",
-          disease: finalCode,
-          color: s.color || "",
-        }).toString();
-
-        router.push(`/dashBoard?${q}`);
-      }
-
+      router.push("/dashBoard");
       setMobileSidebarOpen(false);
     },
-    [
-      diseases,
-      router,
-      setDateRange,
-      setDisease,
-      setProvince,
-      setMainProvince,
-      setCompareProvince,
-    ]
+    [diseases, router, setDateRange, setDisease, setProvince]
   );
 
-  /* -----------------------------------------------------------
-   * ✅ Generate Narrative
-   * ----------------------------------------------------------- */
+  // ✅ Generate Narrative (หน้า Dashboard/Provincial)
   const lastFireAtRef = useRef(0);
 
   const goGenerateNarrative = useCallback(() => {
@@ -259,7 +175,7 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
-  // ✅ สำคัญ: หน้า compareInfo ต้องยิง event เดียว -> ใช้ generateCompare
+  // ✅ Generate Narrative (หน้า Compare)
   const goGenerateCompareNarrative = useCallback(() => {
     const fire = () => {
       const now = Date.now();
@@ -268,11 +184,12 @@ function SidebarInner({
 
       if (typeof window === "undefined") return;
 
-      // ✅ flag กันกรณี push หน้าแล้วต้องยิงตาม
+      // กันกรณี Narrative section ใน compare ถูก DeferRender แล้ว event หาย
       (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__ = now;
 
-      // ✅ ยิงอันเดียวพอ (CompareNarrativeSection จะไปเรียก generateCompare ผ่าน proxy)
+      // ส่งทั้ง 2 ชื่อ กันพลาดว่าฝั่ง narrative ฟังอันไหนอยู่
       window.dispatchEvent(new Event("ai:compare:narrative:generate"));
+      window.dispatchEvent(new Event("ai:narrative:generate"));
     };
 
     const isOnCompare = pathname.startsWith("/compareInfo");
@@ -291,9 +208,6 @@ function SidebarInner({
     }
   }, [router, pathname]);
 
-  /* -----------------------------------------------------------
-   * ✅ โหลดจังหวัด
-   * ----------------------------------------------------------- */
   useEffect(() => {
     (async () => {
       try {
@@ -309,60 +223,39 @@ function SidebarInner({
     })();
   }, []);
 
-  /* -----------------------------------------------------------
-   * ✅ โหลดโรค
-   * ----------------------------------------------------------- */
-  const loadDiseases = useCallback(async () => {
-    try {
-      const res = await fetch("/api/diseases", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load diseases");
-      const data = (await res.json()) as { diseases: Disease[] };
-      const list = data.diseases || [];
-      setDiseases(list);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/diseases", { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to load diseases");
+        const data = (await res.json()) as { diseases: Disease[] };
+        setDiseases(data.diseases || []);
 
-      // default ถ้ายังไม่มีโรคใน store
-      if (!diseaseCode && list.length > 0) {
-        const d01 = list.find((d) => d.code === DEFAULT_DISEASE_CODE);
-        if (d01) setDisease(d01.code, d01.name_th);
-        else setDisease(list[0].code, list[0].name_th);
+        const qsDisease = searchParams.get("disease");
+        if (!diseaseCode && !qsDisease) {
+          const d01 = data.diseases.find((d) => d.code === "D01");
+          if (d01) setDisease(d01.code, d01.name_th);
+        }
+      } catch (e) {
+        console.error("Error loading diseases:", e);
       }
-    } catch (e) {
-      console.error("Error loading diseases:", e);
-      if (!diseaseCode) setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
-    }
-  }, [diseaseCode, setDisease]);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    void loadDiseases();
-  }, [loadDiseases]);
-
-  useEffect(() => {
-    const handler = () => void loadDiseases();
-    window.addEventListener("hhub:diseases:refresh", handler);
-    return () => window.removeEventListener("hhub:diseases:refresh", handler);
-  }, [loadDiseases]);
-
-  /* -----------------------------------------------------------
-   * ✅ อ่าน querystring disease แล้ว setDisease
-   * ----------------------------------------------------------- */
   useEffect(() => {
     const qsDisease = searchParams.get("disease");
-    if (!qsDisease) return;
-    if (diseases.length === 0) return;
-
-    const found = diseases.find((d) => d.code === qsDisease);
-    if (found) setDisease(found.code, found.name_th);
+    if (qsDisease && diseases.length > 0) {
+      const found = diseases.find((d) => d.code === qsDisease);
+      if (found) setDisease(found.code, found.name_th);
+    }
   }, [searchParams, diseases, setDisease]);
 
-  /* -----------------------------------------------------------
-   * ✅ โหลด saved searches
-   * ----------------------------------------------------------- */
   useEffect(() => {
     (async () => {
       try {
         setSavedLoading(true);
         setSavedErr(null);
-
         const res = await fetch("/api/saved-searches", { cache: "no-store" });
 
         if (res.status === 401) {
@@ -372,6 +265,7 @@ function SidebarInner({
         }
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const json = await res.json();
         setSavedSearches(json as SavedSearch[]);
       } catch (e) {
@@ -392,7 +286,7 @@ function SidebarInner({
 
   const renderProvinceOptions = (groups: Record<string, Province[]>) =>
     Object.entries(groups)
-      .sort(([regionA], [regionB]) => regionA.localeCompare(regionB, "th-TH"))
+      .sort(([a, b]) => a.localeCompare(b, "th-TH"))
       .map(([region, items]) => (
         <optgroup key={region} label={makeRegionLabel(region)}>
           {items.map((p) => (
@@ -403,6 +297,7 @@ function SidebarInner({
         </optgroup>
       ));
 
+  // ✅ ชื่อโรคแบบ "ไทย (อังกฤษ)" โดยไม่โชว์ code
   const diseaseLabel = useCallback((d: Disease) => {
     const th = (d.name_th || "").trim();
     const en = (d.name_en || "").trim();
@@ -413,18 +308,25 @@ function SidebarInner({
     <>
       <aside
         className={`
-          z-40 w-full max-w-xs px-3 py-4 transition-transform duration-300 ease-in-out
+          z-40
+          w-full max-w-xs
+          px-3 py-4
+          transition-transform duration-300 ease-in-out
+
           fixed inset-y-0 left-0 top-16
           ${mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+
           md:translate-x-0
-          md:sticky md:top-16 md:self-start
+          md:sticky md:top-16 md:inset-y-auto md:left-auto md:self-start
           md:h-[calc(100vh-4rem)]
         `}
       >
         <div
           className="
-            flex h-full flex-col gap-6 rounded-[36px]
-            bg-white px-6 py-6 overflow-y-auto overscroll-contain
+            flex h-full flex-col gap-6
+            rounded-[36px]
+            bg-white px-6 py-6
+            overflow-y-auto overscroll-contain
             shadow-[0_18px_30px_rgba(33,150,243,0.35)]
           "
         >
@@ -433,13 +335,12 @@ function SidebarInner({
             <label className="mb-1 block text-sm font-medium text-slate-800">
               เลือกโรค
             </label>
-
             <select
-              value={diseaseCode ?? ""}
+              value={diseaseCode}
               onChange={(e) => {
                 const code = e.target.value;
                 const d = diseases.find((x) => x.code === code);
-                setDisease(code, d?.name_th ?? DEFAULT_DISEASE_NAME_TH);
+                setDisease(code, d?.name_th ?? "");
               }}
               className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
             >
@@ -452,14 +353,14 @@ function SidebarInner({
             </select>
           </div>
 
-          {/* จังหวัด / compare จังหวัด */}
+          {/* จังหวัด */}
           {!isComparePage ? (
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-800">
                 เลือกจังหวัด
               </label>
               <select
-                value={province ?? ""}
+                value={province}
                 onChange={(e) => setProvince(e.target.value)}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               >
@@ -474,11 +375,11 @@ function SidebarInner({
                   เลือกจังหวัดหลัก
                 </label>
                 <select
-                  value={mainProvince ?? ""}
+                  value={mainProvince}
                   onChange={(e) => {
                     const value = e.target.value;
                     setMainProvince(value);
-                    setProvince(value); // ✅ ให้ dashboard store ตามจังหวัดหลัก
+                    setProvince(value);
                   }}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 >
@@ -492,7 +393,7 @@ function SidebarInner({
                   เลือกจังหวัดที่ต้องการเปรียบเทียบ
                 </label>
                 <select
-                  value={compareProvince ?? ""}
+                  value={compareProvince}
                   onChange={(e) => setCompareProvince(e.target.value)}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 >
@@ -512,8 +413,8 @@ function SidebarInner({
             <div className="relative mb-2">
               <input
                 type="date"
-                value={start_date ?? ""}
-                onChange={(e) => setDateRange(e.target.value, end_date ?? "")}
+                value={start_date}
+                onChange={(e) => setDateRange(e.target.value, end_date)}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               />
               <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
@@ -522,15 +423,15 @@ function SidebarInner({
             <div className="relative">
               <input
                 type="date"
-                value={end_date ?? ""}
-                onChange={(e) => setDateRange(start_date ?? "", e.target.value)}
+                value={end_date}
+                onChange={(e) => setDateRange(start_date, e.target.value)}
                 className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
               />
               <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
             </div>
           </div>
 
-          {/* saved searches */}
+          {/* การค้นหาที่บันทึกไว้ */}
           {!isComparePage && canSeeSaved && (
             <div className="border-t border-sky-100 pt-3">
               <label className="mb-1 block text-sm font-medium text-slate-800">
@@ -590,8 +491,8 @@ function SidebarInner({
             </div>
           )}
 
-          {/* ปุ่ม Generate */}
-          <div className="mt-auto border-t border-sky-100 pt-3">
+          {/* ✅ ล่างสุดของ sidebar (ทำให้มีทั้งหน้า compare และหน้าอื่น) */}
+          <div className="mt-auto pt-3 border-t border-sky-100">
             <div className="mb-2 text-center text-xs font-medium text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ
             </div>
@@ -632,7 +533,7 @@ function SidebarInner({
         <Filter className="h-5 w-5" />
       </button>
 
-      {/* overlay */}
+      {/* overlay บนมือถือ */}
       {mobileSidebarOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/30 md:hidden"

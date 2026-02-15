@@ -10,21 +10,18 @@ if (!DATABASE_URL) {
   throw new Error("DATABASE_URL is not set");
 }
 
-// ✅ quote schema ให้ปลอดภัย และกันกรณีมีเครื่องหมาย "
-const quotedSchema = `"${String(SCHEMA).replace(/"/g, '""')}"`;
-
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  // ✅ ตั้ง search_path ตั้งแต่เริ่มต่อ connection (ไม่มี race)
-  options: `-c search_path=${quotedSchema},public`,
 });
 
-pool.on("connect", () => {
+// ทุกครั้งที่มี connection ใหม่ ให้สั่งใช้ schema ที่เลือก
+pool.on("connect", (client) => {    
+  client
+    .query(`SET search_path TO ${SCHEMA}, public`)
+    .catch((err) => {
+      console.error("Failed to set search_path", err);
+    });
   console.log(`[kysely3] use schema: ${SCHEMA}`);
-});
-
-pool.on("error", (err) => {
-  console.error("[kysely3] pool error:", err);
 });
 
 export const dbMethod = new Kysely<DBMethod>({

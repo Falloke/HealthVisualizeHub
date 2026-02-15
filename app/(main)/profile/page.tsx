@@ -1,10 +1,10 @@
-import { Suspense } from "react";
 import ProfilePage from "@/app/features/main/profilePage/Index";
 
-export default function ProfilePageRender() {
+const ProfilePageRender = () => {
   return (
-    <Suspense fallback={null}>
+    <div>
       <ProfilePage />
-    </Suspense>
+    </div>
   );
-}
+};
+export default ProfilePageRender;

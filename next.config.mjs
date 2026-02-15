@@ -1,18 +1,17 @@
 // next.config.mjs
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 /** @type {import('next').NextConfig} */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const nextConfig = {
-  // ✅ ปิดการ trace ไฟล์ (ตัวต้นเหตุที่ไป scandir Application Data)
-  outputFileTracing: false,
+  /* config options here */
 
-  experimental: {
-    outputFileTracingRoot: __dirname,
-  },
+  // ถ้าจะใช้ SVG เป็น React component ให้เอา comment ออก แล้วลง @svgr/webpack ก่อน:
+  // webpack: (config) => {
+  //   config.module.rules.push({
+  //     test: /\.svg$/i,
+  //     issuer: /\.[jt]sx?$/,
+  //     use: ['@svgr/webpack'],
+  //   });
+  //   return config;
+  // },
 };
 
 export default nextConfig;

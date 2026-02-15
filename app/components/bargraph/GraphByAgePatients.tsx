@@ -1,7 +1,7 @@
+// D:\HealtRiskHub\app\components\bargraph\GraphByAgePatients.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ReactElement } from "react";
 import {
   BarChart,
   Bar,
@@ -12,7 +12,7 @@ import {
   LabelList,
   Cell,
 } from "recharts";
-
+import type { TooltipProps } from "recharts";
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { TH_NUMBER, niceMax } from "@/app/components/bargraph/GraphUtils";
 
@@ -46,6 +46,7 @@ function colorByRisk(patients: number): string {
   return RISK_COLORS[3]; // ต่ำ
 }
 
+/** ✅ ข้อความ legend แบบย่อ */
 function riskLegendText() {
   const v = TH_NUMBER(THRESHOLD_VERY_HIGH);
   const h = TH_NUMBER(THRESHOLD_HIGH);
@@ -58,25 +59,16 @@ function riskLegendText() {
   };
 }
 
-/* ✅ FIX: Tooltip type แบบ custom (กันชน Recharts เวอร์ชัน) */
-type AnyTooltipPayloadItem = {
-  value?: number | string;
-  payload?: any;
-};
-
-type AgeTooltipProps = {
-  active?: boolean;
-  payload?: AnyTooltipPayloadItem[];
-};
-
 /* Tooltip: ช่วงอายุ (คำอธิบาย) + จำนวน(ราย) */
-function AgeTooltip({ active, payload }: AgeTooltipProps): ReactElement | null {
+function AgeTooltip({
+  active,
+  payload,
+}: TooltipProps<number, string>): JSX.Element | null {
   if (active && payload && payload.length) {
     const v = Number(payload[0]?.value ?? 0);
     const row = payload[0]?.payload as AgeData | undefined;
     const range = row?.ageRange ?? "";
-    const meta = getAgeLabel(range, "full");
-
+    const meta = getAgeLabel(range);
     return (
       <div className="rounded-md bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-gray-200">
         <div className="font-medium text-gray-900">
@@ -94,53 +86,35 @@ function AgeTooltip({ active, payload }: AgeTooltipProps): ReactElement | null {
 }
 
 export default function GraphPatientsByAge() {
-  const { province, start_date, end_date, disease } = useDashboardStore() as any;
+  const { province, start_date, end_date } = useDashboardStore();
   const [data, setData] = useState<AgeData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const provinceLabel = (province || "").trim();
-  const diseaseCode = (disease || "").trim(); // ✅ สำคัญมาก
-
   useEffect(() => {
-    // ✅ ต้องมีทั้งจังหวัด + โรค ถึงจะยิง API
-    if (!provinceLabel || !diseaseCode) {
+    if (!province) {
       setData([]);
       setLoading(false);
       return;
     }
-
-    let cancelled = false;
-
     (async () => {
       try {
         setLoading(true);
-
-        // ✅ ใส่ disease ไปด้วย
-        const url =
-          `/api/dashBoard/age-group` +
-          `?start_date=${encodeURIComponent(start_date)}` +
-          `&end_date=${encodeURIComponent(end_date)}` +
-          `&province=${encodeURIComponent(provinceLabel)}` +
-          `&disease=${encodeURIComponent(diseaseCode)}`;
-
+        const url = `/api/dashBoard/age-group?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
+          province
+        )}`;
         const res = await fetch(url, { cache: "no-store" });
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
-
         const json: AgeData[] = text ? JSON.parse(text) : [];
-        if (!cancelled) setData(json ?? []);
+        setData(json ?? []);
       } catch (err) {
         console.error("❌ Fetch error (age-group):", err);
-        if (!cancelled) setData([]);
+        setData([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [provinceLabel, diseaseCode, start_date, end_date]);
+  }, [province, start_date, end_date]);
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => Number(d.patients ?? 0)))),
@@ -152,12 +126,10 @@ export default function GraphPatientsByAge() {
   return (
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">
-        ผู้ป่วยสะสมรายช่วงอายุ ({provinceLabel || "—"})
+        ผู้ป่วยสะสมรายช่วงอายุ ({province || "—"})
       </h4>
 
-      {!diseaseCode ? (
-        <p className="text-sm text-gray-600">⚠️ กรุณาเลือกโรคก่อน</p>
-      ) : loading ? (
+      {loading ? (
         <p>⏳ กำลังโหลด...</p>
       ) : (
         <ResponsiveContainer width="100%" height={400}>
@@ -191,9 +163,10 @@ export default function GraphPatientsByAge() {
               name="ผู้ป่วยสะสม"
               barSize={26}
               radius={[0, 6, 6, 0]}
-              fill={RISK_COLORS[3]}
+              fill={RISK_COLORS[3]} // default
               isAnimationActive={false}
             >
+              {/* ✅ สีรายแท่งตามความเสี่ยง */}
               {data.map((row, idx) => (
                 <Cell key={`cell-${idx}`} fill={colorByRisk(row.patients)} />
               ))}
@@ -205,7 +178,7 @@ export default function GraphPatientsByAge() {
                   const xx = Number(p.x ?? 0) + Number(p.width ?? 0) + 8;
                   const yy = Number(p.y ?? 0) + 14;
                   const range = data[p.index]?.ageRange ?? "";
-                  const short = getAgeLabel(range, "short");
+                  const short = getAgeLabel(range);
                   return (
                     <text x={xx} y={yy} fontSize={13} fill="#555">
                       {short} {TH_NUMBER(v)} ราย
@@ -218,6 +191,7 @@ export default function GraphPatientsByAge() {
         </ResponsiveContainer>
       )}
 
+      {/* ✅ เอากล่อง “ระดับความเสี่ยง” มาด้วย */}
       <div className="mt-2 rounded border px-3 py-2 text-sm">
         <div className="mb-1 font-semibold">ระดับความเสี่ยง</div>
 
@@ -229,7 +203,6 @@ export default function GraphPatientsByAge() {
             />
             {legend.veryHigh}
           </span>
-
           <span className="inline-flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded"
@@ -247,7 +220,6 @@ export default function GraphPatientsByAge() {
             />
             {legend.medium}
           </span>
-
           <span className="inline-flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded"
@@ -258,6 +230,7 @@ export default function GraphPatientsByAge() {
         </div>
       </div>
 
+      {/* ✅ ข้อความอ้างอิง (เหมือนกราฟภูมิภาค) */}
       <p className="mt-2 text-xs text-gray-500">
         อ้างอิงเกณฑ์จาก DDC: สูงมาก {TH_NUMBER(THRESHOLD_VERY_HIGH)}+ ราย, สูง{" "}
         {TH_NUMBER(THRESHOLD_HIGH)} ถึง{" "}

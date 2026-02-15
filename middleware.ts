@@ -1,17 +1,14 @@
-// middleware.ts
+// E:\HealtRiskHub\middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { auth } from "./auth";
 
-// ✅ หน้า public เข้าได้เลย (ไม่ต้อง login)
 const PUBLIC_PATHS = new Set([
   "/",
   "/login",
   "/register",
   "/haslogin",
   "/favicon.ico",
-
-  // หน้าเหล่านี้คุณอยากให้เปิดดูได้ (ถ้าต้องล็อกอิน ให้เอาออก)
   "/dashBoard",
   "/provincPage",
   "/comparePage",
@@ -21,62 +18,57 @@ const PUBLIC_PATHS = new Set([
   "/provincialInfo",
 ]);
 
-function isStaticOrPublicFile(pathname: string) {
-  return (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/images") ||
-    pathname.startsWith("/data") ||
-    pathname.startsWith("/fonts") ||
-    pathname === "/favicon.ico" ||
-    /\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|json)$/.test(pathname)
-  );
-}
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ✅ อนุญาตไฟล์ static + API ผ่าน
-  if (isStaticOrPublicFile(pathname) || pathname.startsWith("/api")) {
+  // ✅ อนุญาตไฟล์/static ทั้งหมดให้ผ่าน
+  if (
+    pathname.startsWith("/_next") || // ไฟล์ build
+    pathname.startsWith("/images") || // รูปใน /public/images
+    pathname.startsWith("/data") || // JSON ใน /public/data
+    pathname.startsWith("/fonts") || // เผื่อมีฟอนต์
+    pathname.startsWith("/api") || // API routes
+    pathname === "/favicon.ico" || // favicon
+    /\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|json)$/.test(pathname) // ไฟล์ static อื่น ๆ
+  ) {
     return NextResponse.next();
   }
 
-  // ✅ หน้า public ผ่านได้
+  // หน้า public ไม่ต้องมี session
   if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 
-  // ✅ ตรวจ token แบบเบา (ไม่ดึง Prisma / bcrypt)
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-  });
+  // ต้องมี session ตั้งแต่ตรงนี้ลงไป
+  const session = await auth();
+  const role = session?.user?.role?.toLowerCase();
 
-  // ❌ ยังไม่ login → ส่งไปหน้า login
-  if (!token) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  // ✅ admin-only
+  // admin-only
   if (pathname.startsWith("/admin")) {
-    const roleRaw =
-      (token as any)?.role ??
-      (token as any)?.role_name ??
-      (token as any)?.Role ??
-      "";
-
-    const role = String(roleRaw).toLowerCase();
+    if (!session) {
+      const url = new URL("/login", request.url);
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
     if (role !== "admin") {
       return NextResponse.redirect(new URL("/", request.url));
     }
+    return NextResponse.next();
+  }
+
+  // ส่วนที่เหลือ: ต้องล็อกอิน
+  if (!session) {
+    const url = new URL("/login", request.url);
+    url.searchParams.set("next", pathname);
+    return NextResponse.redirect(url);
   }
 
   return NextResponse.next();
 }
 
-// ✅ matcher ให้ทำงานเฉพาะ page routes (exclude static/api)
+// ✅ ยกเว้นเส้นทาง static ใน matcher ด้วย (กันตกหล่น)
 export const config = {
-  matcher: ["/((?!api|_next|images|data|fonts|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next|images|data|fonts|favicon.ico|api|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|json)$).*)",
+  ],
 };

@@ -84,18 +84,9 @@ function tooltipNameTH(name: unknown) {
   return String(name ?? "");
 }
 
-<<<<<<< HEAD
-export default function GraphByProvince({
-  compact = false,
-}: {
-  compact?: boolean;
-}) {
-  const { start_date, end_date, diseaseCode } = useDashboardStore();
-=======
 export default function GraphByProvince({ compact = false }: { compact?: boolean }) {
   const { start_date, end_date } = useDashboardStore();
 
->>>>>>> feature/Method_F&Method_G
   const [raw, setRaw] = useState<RegionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -108,25 +99,6 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
         setLoading(true);
         setErr(null);
 
-<<<<<<< HEAD
-        // ✅ ถ้าไม่เลือกโรค ยังไม่ยิง API
-        if (!diseaseCode || !diseaseCode.trim()) {
-          if (!aborted) setRaw([]);
-          return;
-        }
-
-        const url =
-          `/api/dashBoard/region` +
-          `?start_date=${encodeURIComponent(start_date)}` +
-          `&end_date=${encodeURIComponent(end_date)}` +
-          `&disease=${encodeURIComponent(diseaseCode)}`;
-
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const json = (await res.json()) as RegionData[];
-        if (!aborted) setRaw(Array.isArray(json) ? json : []);
-=======
         if (!start_date || !end_date) {
           if (!aborted) {
             setRaw([]);
@@ -155,7 +127,6 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
         const rows = extractRows(payload);
 
         if (!aborted) setRaw(Array.isArray(rows) ? rows : []);
->>>>>>> feature/Method_F&Method_G
       } catch (e) {
         if (!aborted) {
           setRaw([]);
@@ -170,11 +141,7 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
     return () => {
       aborted = true;
     };
-<<<<<<< HEAD
-  }, [start_date, end_date, diseaseCode]);
-=======
   }, [start_date, end_date]);
->>>>>>> feature/Method_F&Method_G
 
   const data = useMemo(() => normalizeRegions(raw), [raw]);
 
@@ -242,21 +209,14 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
     domainRight: number;
     useCompactTick?: boolean;
   }) => (
-    <section
-      className={`rounded-lg border bg-white ${PAD} shadow-sm overflow-hidden`}
-    >
+    <section className={`rounded-lg border bg-white ${PAD} shadow-sm overflow-hidden`}>
       <h4 className={`mb-1.5 font-bold ${TITLE}`}>{title}</h4>
       <div className="w-full" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={data}
             layout="vertical"
-            margin={{
-              top: M_TOP,
-              right: M_RIGHT,
-              bottom: M_BOTTOM,
-              left: M_LEFT,
-            }}
+            margin={{ top: M_TOP, right: M_RIGHT, bottom: M_BOTTOM, left: M_LEFT }}
             barCategoryGap={BAR_GAP}
             barSize={BAR_SIZE}
           >
@@ -277,21 +237,10 @@ export default function GraphByProvince({ compact = false }: { compact?: boolean
               tickMargin={0}
               tick={{ fontSize: TICK_FS }}
             />
-<<<<<<< HEAD
-
-            <Tooltip
-              formatter={(value: any, name: any) => {
-                const n = Number(value ?? 0);
-                return [
-                  n.toLocaleString(),
-                  tooltipNameTH(name),
-                ] as [string, string];
-=======
             <Tooltip
               formatter={(value: unknown, name: unknown) => {
                 const n = toNumber(value);
                 return [n.toLocaleString(), tooltipNameTH(name)] as [string, string];
->>>>>>> feature/Method_F&Method_G
               }}
               labelStyle={{ fontSize: 12 }}
               itemStyle={{ fontSize: 12 }}

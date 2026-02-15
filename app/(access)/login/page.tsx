@@ -61,14 +61,14 @@ export default function LoginPage() {
             เข้าสู่ระบบ
           </h2>
           <p className="mb-8 text-center text-sm text-gray-600">
-            กรุณากรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งานระบบ HealthVisualizeHub
+            กรุณากรอกอีเมลและรหัสผ่านเพื่อเข้าใช้งานระบบ HealthRiskHub
           </p>
 
           <form className="space-y-5" onSubmit={onLogin}>
             <input
               className="flex h-11 w-full rounded-full border border-[#CFE8FF] bg-[#F2F7FF] px-4 text-sm placeholder:text-neutral-400 focus:border-[#07A2FF] focus:outline-none focus:ring-2 focus:ring-[#07A2FF]/40"
               type="email"
-              placeholder="กรอกอีเมล"
+              placeholder="Adminhhhbbb@mail.com"
               name="email"
               required
               autoComplete="email"
@@ -97,7 +97,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs text-gray-500">
-            HealthVisualizeHub — ระบบวิเคราะห์สถานการณ์โรคระดับจังหวัด
+            HealthRiskHub — ระบบวิเคราะห์สถานการณ์โรคระดับจังหวัด
           </p>
         </div>
       </div>

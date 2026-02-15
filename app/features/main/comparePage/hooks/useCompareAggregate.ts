@@ -8,7 +8,7 @@ type AggregateResp = {
   ok: boolean;
   error?: string;
 
-  // 👇 ปรับชื่อ field ให้ “ตรงกับที่ทำใน aggregate”
+  // 👇 ปรับชื่อ field ให้ “ตรงกับที่อ้วนทำใน aggregate”
   regionTop5?: any;
   agePatients?: any;
   ageDeaths?: any;

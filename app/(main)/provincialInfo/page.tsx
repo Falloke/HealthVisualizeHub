@@ -1,10 +1,9 @@
-import { Suspense } from "react";
-import ProvincePage from "@/app/features/main/provincePage/Index";
-
-export default function ProvincPageRender() {
+import ProvincePage from "app/features/main/provincePage/Index";
+const ProvincPageRender = () => {
   return (
-    <Suspense fallback={null}>
+    <div>
       <ProvincePage />
-    </Suspense>
+    </div>
   );
-}
+};
+export default ProvincPageRender;

@@ -1,10 +1,10 @@
-import { Suspense } from "react";
 import SearchTemplate from "@/app/features/main/searchTemplate/Index";
 
-export default function SearchRender() {
+const SearchRender = () => {
   return (
-    <Suspense fallback={null}>
+    <div>
       <SearchTemplate />
-    </Suspense>
+    </div>
   );
-}
+};
+export default SearchRender;

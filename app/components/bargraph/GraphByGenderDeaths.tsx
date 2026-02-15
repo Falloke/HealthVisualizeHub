@@ -95,53 +95,40 @@ function LineStyleGenderTooltip({ active, label, payload }: GenderTooltipProps) 
 }
 
 export default function GraphByGenderDeaths() {
-  const { province, start_date, end_date, disease } = useDashboardStore() as any;
-
+  const { province, start_date, end_date } = useDashboardStore();
   const [rows, setRows] = useState<ChartRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const provinceLabel = (province || "").trim();
-  const diseaseCode = (disease || "").trim();
   const titleProvinceText = provinceLabel ? `จังหวัด${provinceLabel}` : "ทุกจังหวัด";
 
   useEffect(() => {
-    // ✅ ต้องมีทั้งจังหวัด + โรค
-    if (!provinceLabel || !diseaseCode) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
     (async () => {
       try {
         setLoading(true);
 
-        // ✅ ใส่ disease ไปด้วย
-        const url =
-          `/api/dashBoard/gender-deaths` +
-          `?start_date=${encodeURIComponent(start_date)}` +
-          `&end_date=${encodeURIComponent(end_date)}` +
-          `&province=${encodeURIComponent(provinceLabel)}` +
-          `&disease=${encodeURIComponent(diseaseCode)}`;
+        const url = `/api/dashBoard/gender-deaths?start_date=${start_date}&end_date=${end_date}&province=${encodeURIComponent(
+          provinceLabel
+        )}`;
 
-        const res = await fetch(url, { cache: "no-store" });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || "โหลดข้อมูลผู้เสียชีวิตไม่สำเร็จ");
-
-        const json = (text ? JSON.parse(text) : []) as APIRow[];
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("โหลดข้อมูลผู้เสียชีวิตไม่สำเร็จ");
+        const json = (await res.json()) as APIRow[];
 
         const male = Number(json.find((r) => r.gender === "ชาย")?.value ?? 0);
         const female = Number(json.find((r) => r.gender === "หญิง")?.value ?? 0);
         const unknown = Number(json.find((r) => r.gender === "ไม่ระบุ")?.value ?? 0);
 
         if (cancelled) return;
-        setRows([{ province: provinceLabel, male, female, unknown }]);
+        setRows([{ province: provinceLabel || "ทุกจังหวัด", male, female, unknown }]);
       } catch (err) {
         console.error("❌ Fetch error (gender-deaths):", err);
         if (!cancelled) {
-          setRows([{ province: provinceLabel, male: 0, female: 0, unknown: 0 }]);
+          setRows([
+            { province: provinceLabel || "ทุกจังหวัด", male: 0, female: 0, unknown: 0 },
+          ]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -151,7 +138,7 @@ export default function GraphByGenderDeaths() {
     return () => {
       cancelled = true;
     };
-  }, [provinceLabel, diseaseCode, start_date, end_date]); // ✅ ใส่ diseaseCode ด้วย
+  }, [provinceLabel, start_date, end_date]);
 
   const xMax = useMemo(() => {
     const maxVal = Math.max(
@@ -176,9 +163,7 @@ export default function GraphByGenderDeaths() {
         ผู้เสียชีวิตสะสมแยกตามเพศ {titleProvinceText}
       </h4>
 
-      {!diseaseCode ? (
-        <p className="text-sm text-gray-600">⚠️ กรุณาเลือกโรคก่อน</p>
-      ) : loading ? (
+      {loading ? (
         <p>⏳ กำลังโหลด...</p>
       ) : (
         <ResponsiveContainer width="100%" height={240}>

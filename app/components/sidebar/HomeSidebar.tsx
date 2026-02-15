@@ -1,20 +1,16 @@
-// D:\HealtRiskHub\app\components\sidebar\HomeSidebar.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarIcon, Plus } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/useDashboardStore";
-import { useCompareStore } from "@/store/useCompareStore";
 import { useSession } from "next-auth/react";
 
 type Disease = { code: string; name_th: string; name_en: string };
-
 type SavedSearch = {
   id: number;
   searchName: string;
-  diseaseName: string; // บางทีเป็น code หรือชื่อไทย
-  diseaseCode?: string; // เผื่อ API ส่งมา
+  diseaseName: string;
   province: string;
   provinceAlt: string;
   startDate: string;
@@ -31,29 +27,12 @@ const DEFAULT_END = "2024-06-30";
 // event ที่ใช้คุยกับหน้า PageDescription
 const HOME_NARRATIVE_EVENT = "ai:home:narrative:generate";
 
-// ✅ helper: เดา disease code จาก string
-function extractDiseaseCode(raw?: string) {
-  const s = String(raw ?? "").trim();
-  if (/^D\d{2}$/i.test(s)) return s.toUpperCase();
-  const m = s.match(/\b(D\d{2})\b/i);
-  if (m?.[1]) return m[1].toUpperCase();
-  return "";
-}
-
 export default function HomeSidebar() {
   const { status } = useSession();
   const isAuthed = status === "authenticated";
 
-  const {
-    start_date,
-    end_date,
-    setDateRange,
-    diseaseCode,
-    setDisease,
-    setProvince,
-  } = useDashboardStore();
-
-  const { setMainProvince, setCompareProvince } = useCompareStore();
+  const { start_date, end_date, setDateRange, diseaseCode, setDisease, setProvince } =
+    useDashboardStore();
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -65,27 +44,13 @@ export default function HomeSidebar() {
   const [savedLoading, setSavedLoading] = useState(false);
   const [savedErr, setSavedErr] = useState<string | null>(null);
 
-  // ✅ label ต้องโชว์ 2 จังหวัดถ้ามี provinceAlt
   const labelOf = useCallback((s: SavedSearch) => {
-    const parts: string[] = [];
-
-    const name = String(s.searchName ?? "").trim();
-    if (name) parts.push(name);
-
-    const dz = String(s.diseaseName ?? s.diseaseCode ?? "").trim();
-    if (dz) parts.push(dz);
-
-    const p1 = String(s.province ?? "").trim();
-    const p2 = String(s.provinceAlt ?? "").trim();
-    if (p1 && p2) parts.push(`${p1} ↔ ${p2}`);
-    else if (p1) parts.push(p1);
-
+    const parts: string[] = [s.searchName];
+    if (s.diseaseName) parts.push(s.diseaseName);
     if (s.startDate && s.endDate) parts.push(`${s.startDate}→${s.endDate}`);
-
     return parts.join(" • ");
   }, []);
 
-  // ✅ ชื่อโรคแบบ "ไทย (อังกฤษ)" โดยไม่โชว์ code
   const diseaseLabel = useCallback((d: Disease) => {
     const th = (d.name_th || "").trim();
     const en = (d.name_en || "").trim();
@@ -94,80 +59,20 @@ export default function HomeSidebar() {
 
   const applySavedSearch = useCallback(
     (s: SavedSearch) => {
-      // 1) resolve disease code + name_th
-      const rawCode =
-        extractDiseaseCode(s.diseaseCode) || extractDiseaseCode(s.diseaseName);
+      const d = diseases.find((x) => x.name_th === s.diseaseName || x.code === s.diseaseName);
+      if (d) setDisease(d.code, d.name_th);
+      else if (s.diseaseName) setDisease(DEFAULT_DISEASE_CODE, s.diseaseName);
 
-      const found =
-        (rawCode && diseases.find((x) => x.code === rawCode)) ||
-        diseases.find((x) => x.code === s.diseaseName) ||
-        diseases.find((x) => x.name_th === s.diseaseName);
+      const pv = (s.provinceAlt || s.province || "").trim();
+      if (pv) setProvince(pv);
 
-      const finalCode =
-        found?.code ||
-        rawCode ||
-        (s.diseaseName && /^D\d{2}$/i.test(s.diseaseName)
-          ? s.diseaseName.toUpperCase()
-          : DEFAULT_DISEASE_CODE);
-
-      const finalNameTh =
-        found?.name_th ||
-        (s.diseaseName && !/^D\d{2}$/i.test(s.diseaseName)
-          ? s.diseaseName
-          : DEFAULT_DISEASE_NAME_TH);
-
-      setDisease(finalCode, finalNameTh);
-
-      // 2) provinces
-      const p1 = String(s.province ?? "").trim();
-      const p2 = String(s.provinceAlt ?? "").trim();
-      const hasCompare = !!p1 && !!p2;
-
-      // 3) dates
       setDateRange(s.startDate || DEFAULT_START, s.endDate || DEFAULT_END);
-
-      // 4) route + sync store
-      if (hasCompare) {
-        setMainProvince(p1);
-        setCompareProvince(p2);
-        setProvince(p1);
-
-        const q = new URLSearchParams({
-          province: p1,
-          province_alt: p2,
-          start_date: s.startDate || DEFAULT_START,
-          end_date: s.endDate || DEFAULT_END,
-          disease: finalCode,
-          color: s.color || "",
-        }).toString();
-
-        router.push(`/compareInfo?${q}`);
-      } else {
-        if (p1) setProvince(p1);
-
-        const q = new URLSearchParams({
-          province: p1,
-          start_date: s.startDate || DEFAULT_START,
-          end_date: s.endDate || DEFAULT_END,
-          disease: finalCode,
-          color: s.color || "",
-        }).toString();
-
-        router.push(`/dashBoard?${q}`);
-      }
+      router.push("/dashBoard");
     },
-    [
-      diseases,
-      router,
-      setDateRange,
-      setDisease,
-      setProvince,
-      setMainProvince,
-      setCompareProvince,
-    ]
+    [diseases, router, setDateRange, setDisease, setProvince]
   );
 
-  // ✅ ปุ่ม Generate (ยิง event ไปให้หน้า PageDescription)
+  // ✅ ปุ่ม Generate ที่หัวกล่อง (ยิง event ไปให้หน้า PageDescription)
   const lastFireAtRef = useRef(0);
   const fireHomeNarrative = useCallback(() => {
     const now = Date.now();
@@ -178,8 +83,10 @@ export default function HomeSidebar() {
     window.dispatchEvent(new Event(HOME_NARRATIVE_EVENT));
   }, []);
 
-  // ✅ init date
+  // init date + disease from query
   useEffect(() => {
+    const qsDisease = searchParams.get("disease");
+
     if (!start_date && !end_date) {
       setDateRange(DEFAULT_START, DEFAULT_END);
     } else if (start_date && !end_date) {
@@ -187,15 +94,19 @@ export default function HomeSidebar() {
     } else if (!start_date && end_date) {
       setDateRange(DEFAULT_START, end_date);
     }
+
+    if (!diseaseCode) {
+      if (qsDisease) setDisease(qsDisease, "");
+      else setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ load diseases แล้วค่อย setDisease ให้ถูกต้อง
+  // load diseases
   useEffect(() => {
     (async () => {
       try {
         setDiseaseErr(null);
-
         const res = await fetch("/api/diseases", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -203,12 +114,12 @@ export default function HomeSidebar() {
         const rows = Array.isArray(data) ? data : data?.diseases || [];
         setDiseases(rows);
 
-        const qsDisease = searchParams.get("disease");
-        const targetCode = qsDisease || diseaseCode || DEFAULT_DISEASE_CODE;
+        const qs = searchParams.get("disease");
+        const targetCode = qs || diseaseCode || DEFAULT_DISEASE_CODE;
 
         const hit =
-          rows.find((d) => d.code === targetCode) ||
-          rows.find((d) => d.code === DEFAULT_DISEASE_CODE) ||
+          rows.find((d) => d.code === targetCode) ??
+          rows.find((d) => d.code === DEFAULT_DISEASE_CODE) ??
           rows[0];
 
         if (hit) setDisease(hit.code, hit.name_th);
@@ -216,7 +127,7 @@ export default function HomeSidebar() {
       } catch (e) {
         console.error("โหลด /api/diseases ไม่สำเร็จ:", e);
         setDiseaseErr("โหลดรายการโรคไม่สำเร็จ");
-        setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
+        if (!diseaseCode) setDisease(DEFAULT_DISEASE_CODE, DEFAULT_DISEASE_NAME_TH);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -229,10 +140,8 @@ export default function HomeSidebar() {
       try {
         setSavedLoading(true);
         setSavedErr(null);
-
         const res = await fetch("/api/saved-searches", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
         const json = (await res.json()) as SavedSearch[];
         setSavedSearches(json);
       } catch (e) {
@@ -249,12 +158,16 @@ export default function HomeSidebar() {
   return (
     <section className="w-full">
       <div className="rounded-[28px] bg-white px-6 py-5 shadow-[0_18px_45px_rgba(33,150,243,0.25)] ring-1 ring-sky-100">
-        {/* หัวกล่อง */}
+        {/* ✅ หัวกล่อง + (คำอธิบาย AI Narrative + ปุ่ม Generate) */}
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-900">ตัวกรองข้อมูล</h3>
+            <p className="mt-1 text-xs text-slate-600">
+              เลือกโรคและช่วงเวลาเพื่อใช้กับแผนที่และกราฟในหน้าแรก
+            </p>
           </div>
 
+          {/* ✅ มุมขวา: ข้อความอยู่เหนือปุ่ม */}
           <div className="flex shrink-0 flex-col items-end gap-2">
             <div className="text-xs font-semibold text-[#042743]">
               AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ
@@ -278,19 +191,18 @@ export default function HomeSidebar() {
             </label>
 
             <select
-              value={diseaseCode ?? ""}
+              value={diseaseCode}
               onChange={(e) => {
                 const code = e.target.value;
                 const d = diseases.find((x) => x.code === code);
-                setDisease(code, d?.name_th ?? DEFAULT_DISEASE_NAME_TH);
+                setDisease(code, d?.name_th ?? "");
               }}
               className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
             >
-              {diseases.length === 0 && (
-                <option value={diseaseCode || ""}>กำลังโหลด...</option>
-              )}
+              {diseases.length === 0 && <option value={diseaseCode || ""}>กำลังโหลด...</option>}
               {diseases.map((d) => (
                 <option key={d.code} value={d.code}>
+                  {/* ✅ ไม่โชว์ D01/D02/... */}
                   {diseaseLabel(d)}
                 </option>
               ))}
@@ -313,8 +225,8 @@ export default function HomeSidebar() {
               <div className="relative">
                 <input
                   type="date"
-                  value={start_date ?? ""}
-                  onChange={(e) => setDateRange(e.target.value, end_date ?? "")}
+                  value={start_date}
+                  onChange={(e) => setDateRange(e.target.value, end_date)}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 />
                 <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
@@ -323,8 +235,8 @@ export default function HomeSidebar() {
               <div className="relative">
                 <input
                   type="date"
-                  value={end_date ?? ""}
-                  onChange={(e) => setDateRange(start_date ?? "", e.target.value)}
+                  value={end_date}
+                  onChange={(e) => setDateRange(start_date, e.target.value)}
                   className="w-full rounded-full border border-sky-100 bg-white px-4 py-2 pl-10 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-300"
                 />
                 <CalendarIcon className="absolute left-3 top-2.5 h-4 w-4 text-sky-700" />
@@ -332,7 +244,7 @@ export default function HomeSidebar() {
             </div>
           </div>
 
-          {/* การค้นหาที่บันทึกไว้ */}
+          {/* การค้นหาที่บันทึกไว้ (เฉพาะ login) */}
           <div className="md:col-span-3">
             {isAuthed ? (
               <div className="h-full">
@@ -345,9 +257,7 @@ export default function HomeSidebar() {
                     กำลังโหลด...
                   </div>
                 ) : savedErr ? (
-                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-                    {savedErr}
-                  </div>
+                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{savedErr}</div>
                 ) : savedSearches.length > 0 ? (
                   <div className="flex items-center gap-2">
                     <select

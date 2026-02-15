@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
-import db from "@/lib/kysely/db";
-=======
 import db from "@/lib/kysely4/db";
->>>>>>> feature/Method_F&Method_G
 import { sql } from "kysely";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 // กลุ่มอายุ
 const ageGroups = [
@@ -29,40 +23,6 @@ function parseDateOrFallback(input: string | null, fallback: string) {
   return d;
 }
 
-<<<<<<< HEAD
-function pickDisease(params: URLSearchParams) {
-  return (
-    (params.get("disease") ||
-      params.get("diseaseCode") ||
-      params.get("disease_code") ||
-      "")!
-  ).trim();
-}
-
-/** ✅ resolve table จาก disease_fact_tables */
-async function resolveFactTable(diseaseCode: string) {
-  // fallback เดิมกันกราฟพัง
-  const fallback = { schema: "public", table: "d01_influenza" };
-
-  if (!diseaseCode) return fallback;
-
-  const row = await (db as any)
-    .selectFrom("disease_fact_tables")
-    .select(["schema_name", "table_name", "is_active"])
-    .where("disease_code", "=", diseaseCode)
-    .where("is_active", "=", true)
-    .executeTakeFirst();
-
-  const schema = String((row as any)?.schema_name || "").trim();
-  const table = String((row as any)?.table_name || "").trim();
-
-  // ✅ กัน injection แบบชัวร์ (อนุญาตเฉพาะ a-z0-9_)
-  const ok = (s: string) => /^[a-z0-9_]+$/i.test(s);
-
-  if (!schema || !table || !ok(schema) || !ok(table)) return fallback;
-
-  return { schema, table };
-=======
 /**
  * ✅ ใช้ ref.provinces_moph แทน provinces
  * - รับ province ได้ทั้งเลข (province_no) หรือชื่อไทย (province_name_th)
@@ -90,7 +50,6 @@ async function resolveProvinceName(provinceParam: string): Promise<string | null
     .executeTakeFirst();
 
   return (found?.province_name_th ?? "").trim() || null;
->>>>>>> feature/Method_F&Method_G
 }
 
 export async function GET(request: NextRequest) {
@@ -99,54 +58,12 @@ export async function GET(request: NextRequest) {
 
     const startDate = parseDateOrFallback(params.get("start_date"), "2024-01-01");
     const endDate = parseDateOrFallback(params.get("end_date"), "2024-12-31");
+    const province = params.get("province");
 
-    // ✅ province ต้องมี แต่ถ้าไม่มีให้คืน [] (กันกราฟพัง)
-    const provinceRaw = (params.get("province") || "").trim();
-
-    // ✅ disease optional
-    const diseaseCode = pickDisease(params);
-
-    if (!provinceRaw) {
-      return NextResponse.json([], {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!province || !province.trim()) {
+      return NextResponse.json({ error: "ต้องระบุ province" }, { status: 400 });
     }
 
-<<<<<<< HEAD
-    // ✅ ถ้าเลือก "ทุกจังหวัด" ให้ไม่กรอง province
-    const isAllProvince =
-      provinceRaw === "ทุกจังหวัด" ||
-      provinceRaw === "ทั้งหมด" ||
-      provinceRaw.toLowerCase() === "all";
-
-    // ✅ resolve fact table
-    const { schema, table } = await resolveFactTable(diseaseCode);
-
-    // ✅ Query หลัก (dynamic table)
-    let q = (db as any)
-      .withSchema(schema)
-      .selectFrom(`${table} as ic` as any)
-      .select([
-        sql<number>`COUNT(*)::int`.as("patients"),
-        sql<number>`ic.age_y`.as("age_y"),
-      ])
-      .where("ic.onset_date_parsed", ">=", startDate)
-      .where("ic.onset_date_parsed", "<=", endDate)
-      .where("ic.age_y", "is not", null);
-
-    // ✅ กรองจังหวัด ถ้าไม่ใช่ทุกจังหวัด
-    if (!isAllProvince) {
-      q = q.where("ic.province", "=", provinceRaw);
-    }
-
-    // ✅ ถ้า table เป็นรวมหลายโรค ให้กรอง disease_code
-    if (diseaseCode) {
-      q = q.where("ic.disease_code", "=", diseaseCode);
-    }
-
-    const rows = await q.groupBy("ic.age_y").execute();
-=======
     const provinceName = await resolveProvinceName(province);
     if (!provinceName) {
       return NextResponse.json({ error: `ไม่พบจังหวัด: ${province}` }, { status: 404 });
@@ -162,27 +79,17 @@ export async function GET(request: NextRequest) {
       .where("ic.age_y", "is not", null)
       .groupBy("ic.age_y")
       .execute();
->>>>>>> feature/Method_F&Method_G
 
     // 📊 Map age → group
     const grouped: Record<string, number> = {};
     for (const g of ageGroups) grouped[g.label] = 0;
 
-<<<<<<< HEAD
-    for (const row of rows as any[]) {
-      const age = Number(row.age_y);
-      if (!Number.isFinite(age)) continue;
-
-      const group = ageGroups.find((g) => age >= g.min && age <= g.max);
-      if (group) grouped[group.label] += Number(row.patients || 0);
-=======
     for (const row of rows) {
       const age = Number((row as any).age_y);
       if (!Number.isFinite(age)) continue;
 
       const group = ageGroups.find((g) => age >= g.min && age <= g.max);
       if (group) grouped[group.label] += Number((row as any).patients ?? 0);
->>>>>>> feature/Method_F&Method_G
     }
 
     const result = Object.entries(grouped).map(([ageRange, patients]) => ({
@@ -196,13 +103,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("❌ API ERROR (age-group):", error);
-<<<<<<< HEAD
-    return NextResponse.json([], {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-=======
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
->>>>>>> feature/Method_F&Method_G
   }
 }

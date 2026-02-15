@@ -23,10 +23,6 @@ type DataRow = {
   patients: number;
   deaths: number;
   region?: string;
-<<<<<<< HEAD
-  regionId?: string;
-=======
->>>>>>> feature/Method_F&Method_G
 };
 
 function toNumber(v: unknown): number {
@@ -42,12 +38,14 @@ function regionLabel(region?: string | null): string {
   if (!region) return "";
   const raw = String(region).trim();
 
+  // ถ้าเป็นภาษาไทยอยู่แล้ว
   if (/[ก-๙]/.test(raw)) {
     if (raw.includes("กรุงเทพ") || raw.includes("ปริมณฑล")) return "กรุงเทพและปริมณฑล";
     if (raw.startsWith("ภาค")) return raw;
     return `ภาค${raw}`;
   }
 
+  // ถ้าเป็นโค้ดเลข
   const code = Number(raw);
   const map: Record<number, string> = {
     1: "ภาคเหนือ",
@@ -65,20 +63,12 @@ function extractRegionFromResp(json: any): string {
   return (
     json?.regionName ??
     json?.region ??
-    json?.regionId ??
     json?.mainRegion ??
     json?.data?.regionName ??
     json?.data?.region ??
-    json?.data?.regionId ??
     json?.data?.mainRegion ??
-    json?.selected?.region ??
-    json?.selected?.regionId ??
     json?.topDeaths?.[0]?.region ??
-<<<<<<< HEAD
-    json?.topDeaths?.[0]?.regionId ??
-=======
     json?.topPatients?.[0]?.region ??
->>>>>>> feature/Method_F&Method_G
     ""
   );
 }
@@ -145,12 +135,10 @@ function normalizeRows(json: any): { rows: DataRow[]; regionRaw: string } {
 }
 
 export default function GraphDeathsByRegion() {
-  const { province, start_date, end_date, diseaseCode } = useDashboardStore();
-
+  const { province, start_date, end_date } = useDashboardStore();
   const [data, setData] = useState<DataRow[]>([]);
   const [regionRaw, setRegionRaw] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,34 +155,7 @@ export default function GraphDeathsByRegion() {
         }
 
         setLoading(true);
-        setErr(null);
 
-<<<<<<< HEAD
-        if (!province || !province.trim()) {
-          if (!cancelled) {
-            setData([]);
-            setRegionRaw("");
-          }
-          return;
-        }
-
-        if (!diseaseCode || !diseaseCode.trim()) {
-          if (!cancelled) {
-            setData([]);
-            setRegionRaw("");
-          }
-          return;
-        }
-
-        const url =
-          `/api/dashBoard/region-by-province` +
-          `?start_date=${encodeURIComponent(start_date || "")}` +
-          `&end_date=${encodeURIComponent(end_date || "")}` +
-          `&province=${encodeURIComponent(province || "")}` +
-          `&disease=${encodeURIComponent(diseaseCode)}`;
-
-        const res = await fetch(url, { cache: "no-store" });
-=======
         const url =
           `/api/dashBoard/region-by-province?start_date=${encodeURIComponent(start_date || "")}` +
           `&end_date=${encodeURIComponent(end_date || "")}` +
@@ -206,37 +167,14 @@ export default function GraphDeathsByRegion() {
           cache: "no-store",
         });
 
->>>>>>> feature/Method_F&Method_G
         const text = await res.text();
         if (!res.ok) throw new Error(text || "โหลดข้อมูลไม่สำเร็จ");
 
         const json = text ? JSON.parse(text) : {};
-<<<<<<< HEAD
-
-        // ✅ รองรับหลายชื่อ field กัน API เปลี่ยน
-        const topDeaths: DataRow[] = Array.isArray(json.topDeaths)
-          ? json.topDeaths
-          : Array.isArray(json.top_deaths)
-          ? json.top_deaths
-          : [];
-
-=======
->>>>>>> feature/Method_F&Method_G
         if (cancelled) return;
 
         const { rows, regionRaw: regFromApi } = normalizeRows(json);
 
-<<<<<<< HEAD
-        let reg = extractRegionFromResp(json);
-
-        if (!reg && (topDeaths?.[0]?.region || topDeaths?.[0]?.regionId)) {
-          reg = String(topDeaths[0].region ?? topDeaths[0].regionId ?? "");
-        }
-
-        setRegionRaw(reg || "");
-      } catch (e: any) {
-        console.error("❌ Fetch error (deaths by region):", e);
-=======
         setData(rows);
         let reg = regFromApi;
 
@@ -270,9 +208,7 @@ export default function GraphDeathsByRegion() {
       } catch (err) {
         if ((err as any)?.name === "AbortError") return;
         console.error("❌ Fetch error (deaths by region):", err);
->>>>>>> feature/Method_F&Method_G
         if (!cancelled) {
-          setErr("โหลดข้อมูลไม่สำเร็จ");
           setData([]);
           setRegionRaw("");
         }
@@ -285,7 +221,7 @@ export default function GraphDeathsByRegion() {
       cancelled = true;
       controller.abort();
     };
-  }, [province, start_date, end_date, diseaseCode]);
+  }, [province, start_date, end_date]);
 
   const xMax = useMemo(() => {
     const maxDeaths = Math.max(0, ...data.map((d) => toNumber(d.deaths)));
@@ -293,10 +229,7 @@ export default function GraphDeathsByRegion() {
   }, [data]);
 
   const yWidth = useMemo(() => {
-    const longest = data.reduce(
-      (m, d) => Math.max(m, (d.province ?? "").length),
-      0
-    );
+    const longest = data.reduce((m, d) => Math.max(m, (d.province ?? "").length), 0);
     return Math.min(180, Math.max(96, longest * 10));
   }, [data]);
 
@@ -306,18 +239,8 @@ export default function GraphDeathsByRegion() {
     <div className="rounded bg-white p-4 shadow">
       <h4 className="mb-2 font-bold">ผู้เสียชีวิตสะสมใน {regionText || "—"}</h4>
 
-      {!province || !province.trim() ? (
-        <p className="text-sm text-gray-500">โปรดเลือกจังหวัดก่อน</p>
-      ) : !diseaseCode || !diseaseCode.trim() ? (
-        <p className="text-sm text-gray-500">โปรดเลือกโรคก่อน</p>
-      ) : loading ? (
+      {loading ? (
         <p>⏳ กำลังโหลด...</p>
-<<<<<<< HEAD
-      ) : err ? (
-        <p className="text-sm text-red-600">{err}</p>
-      ) : data.length === 0 ? (
-        <p className="text-sm text-gray-500">ไม่มีข้อมูล</p>
-=======
       ) : !province ? (
         <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
           กรุณาเลือกจังหวัดก่อน เพื่อแสดงผู้เสียชีวิตสะสมในภูมิภาค
@@ -326,7 +249,6 @@ export default function GraphDeathsByRegion() {
         <div className="rounded border border-dashed p-6 text-center text-sm text-gray-500">
           ไม่พบข้อมูลในช่วงวันที่ที่เลือก
         </div>
->>>>>>> feature/Method_F&Method_G
       ) : (
         <ResponsiveContainer width="100%" height={400}>
           <BarChart

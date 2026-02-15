@@ -7,7 +7,6 @@ import { getSession } from "next-auth/react";
 
 import { useDashboardStore } from "@/store/useDashboardStore";
 import { useCompareStore } from "@/store/useCompareStore";
-
 import {
   composeAINarrativePayload,
   type AINarrativePayload,
@@ -20,38 +19,6 @@ type Props = {
   prefetchedPayload?: AINarrativePayload | null;
 };
 
-/** -----------------------------
- * Types: ให้ตรงกับ generateCompare
- * ------------------------------*/
-type ProvinceBlock = {
-  province: string;
-  overview: any;
-  byAge: any;
-  byGender: any;
-  monthlyGenderTrend: any[];
-  regionName?: string;
-  regionComparison?: any;
-  extraNotes?: string;
-  precomputed?: any;
-};
-
-type ComparePayload = {
-  timeRange: { start: string; end: string };
-  diseaseCode?: string;
-  diseaseName?: string;
-  disease?: string;
-
-  mainProvince: string;
-  compareProvince: string;
-  mainData: ProvinceBlock;
-  compareData: ProvinceBlock;
-
-  compareNotes?: string;
-};
-
-/** -----------------------------
- * helpers
- * ------------------------------*/
 function safeJson(text: string): any {
   try {
     return text ? JSON.parse(text) : {};
@@ -60,55 +27,12 @@ function safeJson(text: string): any {
   }
 }
 
-/** อ่าน field ที่อาจ “ไม่มีใน type AINarrativePayload” แบบปลอดภัย */
-function getExtra<T = any>(p: AINarrativePayload, key: string, fallback?: T): T {
-  const v = (p as any)?.[key];
-  return (v ?? fallback) as T;
-}
-
-function toProvinceBlock(p: AINarrativePayload, overrideProvince?: string): ProvinceBlock {
-  return {
-    province: overrideProvince ?? (p as any).province,
-    overview: (p as any).overview,
-    byAge: (p as any).byAge,
-    byGender: (p as any).byGender,
-    monthlyGenderTrend: ((p as any).monthlyGenderTrend ?? []) as any[],
-
-    // optional fields (บางโปรเจคมี บางโปรเจคไม่มี)
-    regionName: getExtra<string>(p, "regionName", undefined),
-    regionComparison: getExtra<any>(p, "regionComparison", undefined),
-    extraNotes: getExtra<string>(p, "extraNotes", undefined),
-    precomputed: getExtra<any>(p, "precomputed", undefined),
-  };
-}
-
-/** ดึงชื่อโรคจาก store แบบ “ไม่พัง type” */
-function useDiseaseNameFromStore(): string {
-  // ถ้า store ของคุณใช้ field ชื่ออื่น ให้ใส่เพิ่มในนี้ได้
-  return useDashboardStore((s: any) => {
-    return (
-      String(
-        s?.diseaseName ??
-          s?.disease_name ??
-          s?.diseaseNameTh ??
-          s?.disease_name_th ??
-          ""
-      ).trim()
-    );
-  });
-}
-
 export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
   const router = useRouter();
 
   const province = useDashboardStore((s) => s.province);
-  const setProvince = useDashboardStore((s) => s.setProvince);
-
   const start_date = useDashboardStore((s) => s.start_date);
   const end_date = useDashboardStore((s) => s.end_date);
-
-  const diseaseCode = useDashboardStore((s) => s.diseaseCode);
-  const diseaseName = useDiseaseNameFromStore();
 
   const mainProvince = useCompareStore((s) => s.mainProvince);
   const compareProvince = useCompareStore((s) => s.compareProvince);
@@ -121,6 +45,10 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
 
   const hasBoth = !!mainProvince && !!compareProvince;
 
+  const baseProvince = useMemo(() => {
+    return province || mainProvince || compareProvince || "ยังไม่ได้เลือกจังหวัด";
+  }, [province, mainProvince, compareProvince]);
+
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const lastTriggerAtRef = useRef(0);
 
@@ -129,10 +57,6 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-
-  const baseProvince = useMemo(() => {
-    return province || mainProvince || compareProvince || "ยังไม่ได้เลือกจังหวัด";
-  }, [province, mainProvince, compareProvince]);
 
   async function handleGenerate(fromSidebar = false) {
     setExpanded(true);
@@ -157,84 +81,37 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
 
       const compareNote = `
 โหมดการใช้งาน: หน้า "เปรียบเทียบจังหวัด"
-- จังหวัดหลัก: "${mainProvince}"
-- จังหวัดเปรียบเทียบ: "${compareProvince}"
 
-ข้อกำหนดสำคัญ:
-1) ทุกหัวข้อควรกล่าวถึงการเปรียบเทียบระหว่าง 2 จังหวัดนี้
-2) ห้ามสร้างตัวเลขเอง ถ้าไม่มีใน JSON ให้เขียนว่า "ไม่มีข้อมูลเพียงพอ"
-`.trim();
+- จังหวัดหลักใน field "province" ของ JSON คือ "${baseProvince}"
+- จังหวัดที่ผู้อ่านใช้เปรียบเทียบชื่อ "${compareProvince}"
 
-      /**
-       * ✅ วิธีทำ “2 จังหวัด”:
-       * - เปลี่ยน store.province ชั่วคราว แล้วเรียก compose 2 รอบ
-       * - จากนั้น restore กลับ
-       */
-      const originalProvince = province;
+ข้อกำหนดสำคัญสำหรับรายงานนี้:
+1. ทุกหัวข้อของรายงานต้องมี 1–2 ประโยคที่พูดถึงการ "เปรียบเทียบ" ระหว่าง "${baseProvince}" กับ "${compareProvince}" โดยระบุชื่อจังหวัดชัดเจน
+2. ห้ามสร้างตัวเลขของจังหวัด "${compareProvince}" ขึ้นมาเอง ถ้าไม่มีตัวเลขใน JSON ให้เปรียบเทียบเชิงคุณภาพเท่านั้น
+3. ต้องเชื่อมโยงว่าข้อมูลจังหวัดหลักใช้เป็นฐานดูความต่างกับ "${compareProvince}" อย่างไร
+      `.trim();
 
-      // --- MAIN ---
-      setProvince(mainProvince!);
-
-      const mainPayload: AINarrativePayload = prefetchedPayload
-        ? ({
+      const payload: AINarrativePayload = prefetchedPayload
+        ? {
             ...prefetchedPayload,
-            // บังคับ province ให้ตรงกับ main
-            province: mainProvince!,
-            // เติม note ให้ชัดว่าเป็น compare
-            extraNotes: [getExtra(prefetchedPayload, "extraNotes", ""), compareNote]
+            extraNotes: [prefetchedPayload.extraNotes, compareNote]
               .filter(Boolean)
               .join("\n\n"),
-          } as any)
+          }
         : await composeAINarrativePayload(compareNote);
 
-      // --- COMPARE ---
-      setProvince(compareProvince!);
-      const comparePayload: AINarrativePayload = await composeAINarrativePayload(compareNote);
-
-      // --- RESTORE ---
-      setProvince(originalProvince || mainProvince!);
-
-      // ดึง disease จาก payload แบบปลอดภัย (กัน type ไม่มี field)
-      const payloadDiseaseCode =
-        String(getExtra<string>(mainPayload, "diseaseCode", "") || diseaseCode || "").trim() ||
-        undefined;
-
-      const payloadDiseaseName =
-        String(getExtra<string>(mainPayload, "diseaseName", "") || diseaseName || "").trim() ||
-        undefined;
-
-      const payloadDisease =
-        String(getExtra<string>(mainPayload, "disease", "") || "").trim() || undefined;
-
-      const reqPayload: ComparePayload = {
-        timeRange: (mainPayload as any).timeRange ?? { start: start_date ?? "", end: end_date ?? "" },
-
-        diseaseCode: payloadDiseaseCode,
-        diseaseName: payloadDiseaseName,
-        disease: payloadDisease,
-
-        mainProvince: mainProvince!,
-        compareProvince: compareProvince!,
-
-        mainData: toProvinceBlock(mainPayload, mainProvince!),
-        compareData: toProvinceBlock(comparePayload, compareProvince!),
-
-        compareNotes: compareNote,
-      };
-
-      // ✅ ยิงไป proxy ของ compareInfo (ให้ไปใช้ generateCompare ฝั่ง api)
       const res = await fetch("/api/compareInfo/ai-narrative", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reqPayload),
-        cache: "no-store",
+        body: JSON.stringify(payload),
       });
 
       const text = await res.text().catch(() => "");
       const data = safeJson(text);
 
       if (!res.ok) {
-        const msg = (data && (data.error || data.message)) || text || "AI request failed";
+        const msg =
+          (data && (data.error || data.message)) || text || "AI request failed";
         throw new Error(msg);
       }
       if (!data || !data.ok) {
@@ -257,11 +134,7 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-<<<<<<< HEAD
-    a.download = `compare_narrative_${mainProvince}_vs_${compareProvince}_${start_date}_${end_date}.txt`;
-=======
     a.download = `compare_narrative_${baseProvince}_กับ_${compareProvince}_${start_date}_${end_date}.txt`;
->>>>>>> feature/Method_F&Method_G
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -276,10 +149,9 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
       handleGenerate(true);
     };
 
-    // ✅ ฟังเฉพาะ event compare เพื่อไม่ยิงซ้ำ
     window.addEventListener("ai:compare:narrative:generate", onTrigger);
+    window.addEventListener("ai:narrative:generate", onTrigger);
 
-    // รองรับ pending จาก sidebar
     const pending = (window as any).__HHUB_COMPARE_NARRATIVE_PENDING__;
     if (pending && typeof pending === "number") {
       const age = Date.now() - pending;
@@ -291,22 +163,27 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
 
     return () => {
       window.removeEventListener("ai:compare:narrative:generate", onTrigger);
+      window.removeEventListener("ai:narrative:generate", onTrigger);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasBoth, mainProvince, compareProvince, start_date, end_date]);
+  }, [hasBoth, baseProvince, compareProvince, start_date, end_date]);
 
   const shouldShow = expanded || loading || !!article || !!error;
+
   if (!shouldShow) return <div ref={sectionRef} />;
 
   return (
     <>
       <div ref={sectionRef} className="mt-6 scroll-mt-24">
         <Card>
+          {/* ✅ หัวข้อกล่อง ตามที่ขอ */}
           <CardHeader>
             <CardTitle>AI Narrative — คำอธิบายแดชบอร์ดอัตโนมัติ</CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-3">
+            {/* ✅ ไม่มีปุ่ม Generate แล้ว (กดจาก sidebar เท่านั้น) */}
+
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             {loading && (
@@ -333,17 +210,30 @@ export default function CompareNarrativeSection({ prefetchedPayload }: Props) {
       </div>
 
       {showLockModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" aria-modal="true" role="dialog">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowLockModal(false)} />
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          aria-modal="true"
+          role="dialog"
+        >
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowLockModal(false)}
+          />
           <div className="relative z-10 w-[92%] max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-3 text-lg font-semibold text-gray-900">ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้</div>
+            <div className="mb-3 text-lg font-semibold text-gray-900">
+              ต้องล็อกอินเพื่อใช้งานฟีเจอร์นี้
+            </div>
             <div className="mb-5 text-sm text-gray-600">
               ฟีเจอร์สร้างคำบรรยายการเปรียบเทียบอัตโนมัติ (AI Narrative)
               ใช้ได้เฉพาะสมาชิกเท่านั้น โปรดเข้าสู่ระบบหรือสมัครสมาชิกก่อน
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button variant="ghost" onClick={() => setShowLockModal(false)} className="border">
+              <Button
+                variant="ghost"
+                onClick={() => setShowLockModal(false)}
+                className="border"
+              >
                 ปิด
               </Button>
               <Button variant="secondary" onClick={() => router.push("/register")}>

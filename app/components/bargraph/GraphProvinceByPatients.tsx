@@ -1,4 +1,3 @@
-// app/components/bargraph/GraphProvinceByPatients.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -20,11 +19,9 @@ import {
 } from "./GraphUtils";
 
 type ProvinceResp = {
-  province?: string;
-  region?: string | null; // legacy
-  regionId?: string | null; // ✅ API ใหม่
-  patients?: number | string;
-  deaths?: number | string;
+  province: string;
+  region: string;
+  patients: number | string;
 };
 
 type PatientsSummary = {
@@ -35,6 +32,7 @@ type PatientsSummary = {
 
 type Row = { province: string; region?: string; value: number };
 
+// ✅ ไม่ล็อกความสูงการ์ดแล้ว (แก้ปัญหาช่องว่างเยอะ)
 const HEADER_MIN_H = 64;
 const CHART_H = 160;
 
@@ -64,7 +62,7 @@ function OneLineTick({ x, y, payload }: any) {
 }
 
 export default function GraphProvinceByPatients() {
-  const { province, start_date, end_date, diseaseCode } = useDashboardStore();
+  const { province, start_date, end_date } = useDashboardStore();
 
   const [data, setData] = useState<Row[]>([]);
   const [summary, setSummary] = useState<PatientsSummary | null>(null);
@@ -79,24 +77,10 @@ export default function GraphProvinceByPatients() {
         setLoading(true);
         setError(null);
 
-        // ✅ ถ้าไม่เลือกโรค -> ไม่ยิง API
-        if (!diseaseCode || !diseaseCode.trim()) {
-          if (!cancelled) {
-            setData(
-              province
-                ? [{ province, region: undefined, value: 0 }]
-                : [{ province: "รวม", region: undefined, value: 0 }]
-            );
-            setSummary(null);
-          }
-          return;
-        }
-
         const qs = new URLSearchParams({
           start_date: start_date || "",
           end_date: end_date || "",
           province: province || "",
-          disease: diseaseCode || "",
         }).toString();
 
         const [provRes, sumRes] = await Promise.all([
@@ -114,16 +98,12 @@ export default function GraphProvinceByPatients() {
 
         if (cancelled) return;
 
-        const provName = String(provJson?.province ?? province ?? "").trim();
-        const regionName =
-          String(provJson?.regionId ?? provJson?.region ?? "").trim() || undefined;
-
-        if (provName) {
+        if (provJson?.province) {
           setData([
             {
-              province: provName,
-              region: regionName,
-              value: toNumber(provJson?.patients ?? 0),
+              province: provJson.province,
+              region: provJson.region,
+              value: toNumber(provJson.patients),
             },
           ]);
         } else {
@@ -146,7 +126,7 @@ export default function GraphProvinceByPatients() {
     return () => {
       cancelled = true;
     };
-  }, [province, start_date, end_date, diseaseCode]);
+  }, [province, start_date, end_date]);
 
   const xMax = useMemo(
     () => niceMax(Math.max(0, ...data.map((d) => toNumber(d.value)))),
@@ -169,26 +149,20 @@ export default function GraphProvinceByPatients() {
     <div className="rounded bg-white p-4 shadow">
       {/* Header */}
       <div style={{ minHeight: HEADER_MIN_H }}>
-        <h4 className="font-bold text-gray-900">
-          ผู้ป่วยสะสมจังหวัด {headerProvince}
-        </h4>
+        <h4 className="font-bold text-gray-900">ผู้ป่วยสะสมจังหวัด {headerProvince}</h4>
 
         {loading ? (
           <p className="mt-1 text-sm text-gray-500">⏳ กำลังโหลด...</p>
         ) : error ? (
           <p className="mt-1 text-sm text-red-600">{error}</p>
         ) : !summary ? (
-          <p className="mt-1 text-sm text-gray-500">
-            ไม่พบข้อมูลผู้ป่วยในช่วงเวลานี้
-          </p>
+          <p className="mt-1 text-sm text-gray-500">ไม่พบข้อมูลผู้ป่วยในช่วงเวลานี้</p>
         ) : (
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-red-600 leading-none">
               {toNumber(summary.totalPatients).toLocaleString()}
             </span>
-            <span className="text-base font-normal text-gray-800 leading-none">
-              ราย
-            </span>
+            <span className="text-base font-normal text-gray-800 leading-none">ราย</span>
 
             <span className="ml-2 text-xs font-normal text-gray-700 sm:text-sm leading-none truncate">
               เฉลี่ยวันละ{" "}
@@ -205,7 +179,7 @@ export default function GraphProvinceByPatients() {
         )}
       </div>
 
-      {/* Chart */}
+      {/* Chart (ล็อกสูงเฉพาะกราฟ แต่การ์ดไม่ล็อกแล้ว) */}
       <div className="relative mt-2" style={{ height: CHART_H }}>
         {loading ? (
           <div className="flex h-full items-center justify-center text-sm text-gray-500">
@@ -247,12 +221,7 @@ export default function GraphProvinceByPatients() {
               />
 
               <Tooltip
-                content={
-                  <ProvinceCountTooltip
-                    seriesName="ผู้ป่วยสะสม"
-                    labelKey="province"
-                  />
-                }
+                content={<ProvinceCountTooltip seriesName="ผู้ป่วยสะสม" labelKey="province" />}
                 wrapperStyle={{ zIndex: 10 }}
                 cursor={{ fill: "rgba(0,0,0,0.04)" }}
                 offset={12}
